@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>eclipse synth</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #181818;
+      color: #fff;
+    }
+    #synth-area {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: none;
+      user-select: none;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.5);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 1rem;
+    }
+    #control-panel {
+      position: fixed;
+      right: 20px;
+      top: 20px;
+      z-index: 20;
+      user-select: none;
+    }
+    
+    #toggle-button {
+      width: 30px;
+      height: 30px;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s ease;
+    }
+    
+    #toggle-button:hover {
+      background: rgba(0,0,0,0.5);
+      transform: scale(1.1);
+    }
+    
+    #waveform-panel {
+      position: absolute;
+      right: 0;
+      top: 40px;
+      background: rgba(0,0,0,0.3);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 1.2rem;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      transform: translateX(100%);
+      opacity: 0;
+      transition: all 0.3s ease;
+      pointer-events: none;
+    }
+    
+    #waveform-panel.expanded {
+      transform: translateX(0);
+      opacity: 1;
+      pointer-events: all;
+    }
+    
+    #infinity-button {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 50px;
+      height: 50px;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50%;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 24px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+      z-index: 20;
+      user-select: none;
+    }
+    
+    #infinity-button:hover {
+      background: rgba(0,0,0,0.5);
+      transform: scale(1.1);
+    }
+    
+    #infinity-button.active {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.3);
+      box-shadow: 0 0 20px rgba(255,255,255,0.3);
+    }
+    #waveform-panel label {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      gap: 12px;
+      opacity: 0.8;
+    }
+    #waveform-panel input[type=range] {
+      flex: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    #waveform-panel input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      background: #fff;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    #waveform-panel input[type=range]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: #fff;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    #waveform-panel input[type=range]::-moz-range-track {
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      border: none;
+    }
+    .orb-instance {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0.7;
+      mix-blend-mode: lighten;
+      z-index: 10;
+      transition: left 0.1s ease-out, top 0.1s ease-out;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="synth-area"></div>
+  <div id="control-panel">
+    <div id="toggle-button">△</div>
+    <div id="waveform-panel">
+      <label>∿ <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="1"></label><br>
+      <label>⊓ <input type="range" id="square-slider" min="0" max="1" step="0.01" value="0"></label><br>
+      <label>⌈ <input type="range" id="saw-slider" min="0" max="1" step="0.01" value="0"></label><br>
+      <label>◊ <input type="range" id="noise-slider" min="0" max="1" step="0.01" value="0"></label>
+    </div>
+  </div>
+  <div id="infinity-button">∞</div>
+  <script>
+    const synthArea = document.getElementById('synth-area');
+    const toggleButton = document.getElementById('toggle-button');
+    const waveformPanel = document.getElementById('waveform-panel');
+    const infinityButton = document.getElementById('infinity-button');
+    const sineSlider = document.getElementById('sine-slider');
+    const squareSlider = document.getElementById('square-slider');
+    const sawSlider = document.getElementById('saw-slider');
+    const noiseSlider = document.getElementById('noise-slider');
+    let audioCtx = null;
+    let voices = [];
+    let activeVoice = null;
+    let infinityMode = false;
+    let orbColors = [
+      ['#fff', '#6cf', '#09f'],
+      ['#fff', '#fc6', '#f90'],
+      ['#fff', '#c6f', '#90f'],
+      ['#fff', '#6f6', '#0f9'],
+      ['#fff', '#f66', '#f09'],
+      ['#fff', '#ff6', '#ff0'],
+      ['#fff', '#6ff', '#0ff'],
+    ];
+    let orbColorIdx = 0;
+    let globalReverb = null;
+    let globalCompressor = null;
+
+    function createReverbImpulse(ctx) {
+      const sampleRate = ctx.sampleRate;
+      const length = sampleRate * 2; // 2 second impulse
+      const impulse = ctx.createBuffer(2, length, sampleRate);
+      
+      for (let channel = 0; channel < 2; channel++) {
+        const channelData = impulse.getChannelData(channel);
+        for (let i = 0; i < length; i++) {
+          const decay = Math.exp(-i / (sampleRate * 0.5)); // 0.5 second decay
+          channelData[i] = (Math.random() * 2 - 1) * decay * 0.5;
+        }
+      }
+      return impulse;
+    }
+
+    function createNoiseBuffer(ctx) {
+      const bufferSize = ctx.sampleRate * 2;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      return buffer;
+    }
+
+    class Voice {
+      constructor(x, y, colorSet) {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        this.x = x;
+        this.y = y;
+        this.colorSet = colorSet;
+        this.sineOsc = audioCtx.createOscillator();
+        this.sineOsc.type = 'sine';
+        this.sineGain = audioCtx.createGain();
+        this.sineOsc.connect(this.sineGain);
+        this.sineOsc.start();
+
+        this.squareOsc = audioCtx.createOscillator();
+        this.squareOsc.type = 'square';
+        this.squareGain = audioCtx.createGain();
+        this.squareOsc.connect(this.squareGain);
+        this.squareOsc.start();
+
+        this.sawOsc = audioCtx.createOscillator();
+        this.sawOsc.type = 'sawtooth';
+        this.sawGain = audioCtx.createGain();
+        this.sawOsc.connect(this.sawGain);
+        this.sawOsc.start();
+
+        this.noiseSource = audioCtx.createBufferSource();
+        this.noiseSource.buffer = createNoiseBuffer(audioCtx);
+        this.noiseGain = audioCtx.createGain();
+        this.noiseSource.connect(this.noiseGain);
+        this.noiseSource.loop = true;
+        this.noiseSource.start();
+
+        this.masterGain = audioCtx.createGain();
+        this.masterGain.gain.setValueAtTime(0.2, audioCtx.currentTime); // Reduce individual orb volume
+        
+        // Create lowpass filter
+        this.lowpassFilter = audioCtx.createBiquadFilter();
+        this.lowpassFilter.type = 'lowpass';
+        this.lowpassFilter.Q.setValueAtTime(4, audioCtx.currentTime);
+        
+        this.sineGain.connect(this.lowpassFilter);
+        this.squareGain.connect(this.lowpassFilter);
+        this.sawGain.connect(this.lowpassFilter);
+        this.noiseGain.connect(this.lowpassFilter);
+        this.lowpassFilter.connect(this.masterGain);
+        // masterGain now connects to fadeGain instead of destination
+        
+        // Create tremolo oscillator
+        this.tremoloOsc = audioCtx.createOscillator();
+        this.tremoloOsc.frequency.setValueAtTime(1, audioCtx.currentTime); // 1 Hz = 1 second cycle
+        this.tremoloGain = audioCtx.createGain();
+        this.tremoloGain.gain.setValueAtTime(0.1, audioCtx.currentTime); // Tremolo depth (30%)
+        this.tremoloOsc.connect(this.tremoloGain);
+        this.tremoloGain.connect(this.lowpassFilter.frequency);
+        
+        // Create volume tremolo
+        this.volumeTremoloGain = audioCtx.createGain();
+        this.volumeTremoloGain.gain.setValueAtTime(0.2, audioCtx.currentTime); // Volume tremolo depth (20%)
+        this.tremoloOsc.connect(this.volumeTremoloGain);
+        this.volumeTremoloGain.connect(this.masterGain.gain);
+        
+        // Create fade gain for overall volume control
+        this.fadeGain = audioCtx.createGain();
+        this.fadeGain.gain.setValueAtTime(1, audioCtx.currentTime);
+        this.masterGain.connect(this.fadeGain);
+        
+        // Create reverb send
+        this.reverbSend = audioCtx.createGain();
+        this.reverbSend.gain.setValueAtTime(1, audioCtx.currentTime); // Full reverb
+        this.fadeGain.connect(this.reverbSend);
+        
+        // Connect to global compressor if it exists
+        if (globalCompressor) {
+          this.reverbSend.connect(globalCompressor);
+        }
+        
+        this.fadeGain.connect(audioCtx.destination);
+        this.tremoloOsc.start();
+
+        this.createOrb();
+        this.setParams(x, y);
+        this.updateWaveformGains();
+      }
+      setParams(x, y) {
+        this.x = x;
+        this.y = y;
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const minFreq = 20;
+        const maxFreq = 2000;
+        const freq = minFreq + (maxFreq - minFreq) * (x / width);
+        this.sineOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        this.squareOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        this.sawOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        
+        // Y controls lowpass filter cutoff (top = bright, bottom = dark)
+        const minCutoff = 50;
+        const maxCutoff = 8000;
+        const cutoff = minCutoff + (maxCutoff - minCutoff) * (1 - y / height);
+        this.lowpassFilter.frequency.setValueAtTime(cutoff, audioCtx.currentTime);
+        
+        this.updateOrb(x, y);
+      }
+      updateWaveformGains() {
+        const sineVal = parseFloat(sineSlider.value);
+        const squareVal = parseFloat(squareSlider.value);
+        const sawVal = parseFloat(sawSlider.value);
+        const noiseVal = parseFloat(noiseSlider.value);
+        let sum = sineVal + squareVal + sawVal + noiseVal;
+        let norm = sum > 1 ? 1 / sum : 1;
+        this.sineGain.gain.value = sineVal * norm;
+        this.squareGain.gain.value = squareVal * norm;
+        this.sawGain.gain.value = sawVal * norm;
+        this.noiseGain.gain.value = noiseVal * norm;
+      }
+      createOrb() {
+        this.orb = document.createElement('div');
+        this.orb.className = 'orb-instance';
+        this.orb.style.background = 'transparent';
+        this.orb.style.boxShadow = `0 0 40px 20px ${this.colorSet[1]}, 0 0 80px 40px ${this.colorSet[2]}`;
+        this.orb.style.left = `${this.x - 60}px`;
+        this.orb.style.top = `${this.y - 60}px`;
+        this.orb.style.display = 'block';
+        document.body.appendChild(this.orb);
+        console.log('Orb created at:', this.x, this.y, 'Color:', this.colorSet);
+        this.startPulse();
+      }
+      updateOrb(x, y, show = true) {
+        this.orb.style.left = `${x - 60}px`;
+        this.orb.style.top = `${y - 60}px`;
+        this.orb.style.display = show ? 'block' : 'none';
+      }
+      startPulse() {
+        const pulseDuration = 1000; // 1 second per pulse cycle
+        const startTime = Date.now();
+        
+        this.pulseInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          const pulseProgress = (elapsed % pulseDuration) / pulseDuration;
+          const pulseValue = Math.sin(pulseProgress * Math.PI * 2) * 0.3 + 0.7; // 0.4 to 1.0
+          
+          // Pulse size
+          const baseSize = 120;
+          const pulseSize = baseSize * pulseValue;
+          this.orb.style.width = `${pulseSize}px`;
+          this.orb.style.height = `${pulseSize}px`;
+          
+          // Keep orb centered at its final position (60px is half of base size)
+          this.orb.style.left = `${this.x - 60}px`;
+          this.orb.style.top = `${this.y - 60}px`;
+          
+          // Pulse glow intensity
+          const glowIntensity = pulseValue * 1.5;
+          this.orb.style.boxShadow = `0 0 ${40 * glowIntensity}px ${20 * glowIntensity}px ${this.colorSet[1]}, 0 0 ${80 * glowIntensity}px ${40 * glowIntensity}px ${this.colorSet[2]}`;
+        }, 32); // ~30fps for smoother performance
+      }
+      
+      startFadeOut() {
+        // Stop the pulse when fading out
+        if (this.pulseInterval) {
+          clearInterval(this.pulseInterval);
+        }
+        
+        const fadeDuration = 5000; // 5 seconds
+        const startTime = Date.now();
+        const startOpacity = 0.8;
+        const startTremoloFreq = 1; // Starting tremolo frequency
+        const endTremoloFreq = 8; // Ending tremolo frequency (8 Hz)
+        
+        this.fadeInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(elapsed / fadeDuration, 1);
+          
+          // Fade overall volume to silence
+          const fadeVolume = 1 - progress;
+          this.fadeGain.gain.setValueAtTime(fadeVolume, audioCtx.currentTime);
+          
+          // Fade opacity
+          const newOpacity = startOpacity * (1 - progress);
+          this.orb.style.opacity = newOpacity.toString();
+          
+          // Increase tremolo frequency
+          const newTremoloFreq = startTremoloFreq + (endTremoloFreq - startTremoloFreq) * progress;
+          this.tremoloOsc.frequency.setValueAtTime(newTremoloFreq, audioCtx.currentTime);
+          
+          if (progress >= 1) {
+            clearInterval(this.fadeInterval);
+            this.destroy();
+          }
+        }, 16); // ~60fps
+      }
+      
+      destroy() {
+        if (this.pulseInterval) {
+          clearInterval(this.pulseInterval);
+        }
+        this.sineOsc.stop();
+        this.sineOsc.disconnect();
+        this.squareOsc.stop();
+        this.squareOsc.disconnect();
+        this.sawOsc.stop();
+        this.sawOsc.disconnect();
+        this.noiseSource.stop();
+        this.noiseSource.disconnect();
+        this.tremoloOsc.stop();
+        this.tremoloOsc.disconnect();
+        this.sineGain.disconnect();
+        this.squareGain.disconnect();
+        this.sawGain.disconnect();
+        this.noiseGain.disconnect();
+        this.tremoloGain.disconnect();
+        this.volumeTremoloGain.disconnect();
+        this.lowpassFilter.disconnect();
+        this.masterGain.disconnect();
+        this.reverbSend.disconnect();
+        this.fadeGain.disconnect();
+        this.orb.remove();
+      }
+    }
+
+    function getNextColorSet() {
+      const set = orbColors[orbColorIdx % orbColors.length];
+      orbColorIdx++;
+      return set;
+    }
+
+    function onPointerDown(x, y) {
+      // Initialize global audio processing if not already done
+      if (!globalReverb && audioCtx) {
+        // Create compressor
+        globalCompressor = audioCtx.createDynamicsCompressor();
+        globalCompressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
+        globalCompressor.knee.setValueAtTime(30, audioCtx.currentTime);
+        globalCompressor.ratio.setValueAtTime(12, audioCtx.currentTime);
+        globalCompressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+        globalCompressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+        
+        // Create reverb
+        globalReverb = audioCtx.createConvolver();
+        globalReverb.buffer = createReverbImpulse(audioCtx);
+        
+        // Connect: compressor -> reverb -> destination
+        globalCompressor.connect(globalReverb);
+        globalReverb.connect(audioCtx.destination);
+      }
+      
+      const colorSet = getNextColorSet();
+      activeVoice = new Voice(x, y, colorSet);
+      voices.push(activeVoice);
+      activeVoice.updateOrb(x, y, true);
+      activeVoice.updateWaveformGains();
+    }
+    function onPointerMove(x, y) {
+      if (activeVoice) {
+        activeVoice.setParams(x, y);
+        activeVoice.updateOrb(x, y, true);
+      }
+    }
+    function onPointerUp(x, y) {
+      if (activeVoice) {
+        activeVoice.setParams(x, y);
+        activeVoice.updateOrb(x, y, true);
+        // Stop the pulse animation when mouse is released
+        if (activeVoice.pulseInterval) {
+          clearInterval(activeVoice.pulseInterval);
+          activeVoice.pulseInterval = null;
+        }
+        if (!infinityMode) {
+          activeVoice.startFadeOut();
+        }
+        activeVoice = null;
+      }
+    }
+
+    sineSlider.addEventListener('input', () => {
+      if (activeVoice) {
+        activeVoice.updateWaveformGains();
+      }
+    });
+    squareSlider.addEventListener('input', () => {
+      if (activeVoice) {
+        activeVoice.updateWaveformGains();
+      }
+    });
+    sawSlider.addEventListener('input', () => {
+      if (activeVoice) {
+        activeVoice.updateWaveformGains();
+      }
+    });
+    noiseSlider.addEventListener('input', () => {
+      if (activeVoice) {
+        activeVoice.updateWaveformGains();
+      }
+    });
+
+    // Toggle panel visibility
+    toggleButton.addEventListener('click', () => {
+      waveformPanel.classList.toggle('expanded');
+      toggleButton.textContent = waveformPanel.classList.contains('expanded') ? '▲' : '△';
+    });
+
+    // Toggle infinity mode
+    infinityButton.addEventListener('click', () => {
+      infinityMode = !infinityMode;
+      infinityButton.classList.toggle('active', infinityMode);
+      
+      if (infinityMode) {
+        // Stop fade-out on all existing orbs
+        voices.forEach(voice => {
+          if (voice.fadeInterval) {
+            clearInterval(voice.fadeInterval);
+            voice.fadeInterval = null;
+          }
+        });
+      }
+    });
+
+    synthArea.addEventListener('mousedown', (e) => {
+      onPointerDown(e.clientX, e.clientY);
+    });
+    synthArea.addEventListener('mousemove', (e) => {
+      onPointerMove(e.clientX, e.clientY);
+    });
+    synthArea.addEventListener('mouseup', (e) => {
+      onPointerUp(e.clientX, e.clientY);
+    });
+    synthArea.addEventListener('mouseleave', (e) => {
+      onPointerUp(e.clientX, e.clientY);
+    });
+    // Touch support
+    synthArea.addEventListener('touchstart', (e) => {
+      const touch = e.touches[0];
+      onPointerDown(touch.clientX, touch.clientY);
+    });
+    synthArea.addEventListener('touchmove', (e) => {
+      const touch = e.touches[0];
+      onPointerMove(touch.clientX, touch.clientY);
+    });
+    synthArea.addEventListener('touchend', (e) => {
+      const touch = e.changedTouches[0];
+      onPointerUp(touch.clientX, touch.clientY);
+    });
+    synthArea.addEventListener('touchcancel', (e) => {
+      const touch = e.changedTouches[0];
+      onPointerUp(touch.clientX, touch.clientY);
+    });
+  </script>
+</body>
+</html> 
