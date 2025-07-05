@@ -209,7 +209,6 @@
     let globalReverb = null;
     let globalCompressor = null;
     let globalLimiter = null;
-    let isTouchActive = false; // Track touch state
 
     function createReverbImpulse(ctx) {
       const sampleRate = ctx.sampleRate;
@@ -482,9 +481,6 @@
     }
 
     function onPointerDown(x, y) {
-      // Prevent creating multiple voices if touch is already active
-      if (isTouchActive) return;
-      
       // Initialize global audio processing if not already done
       if (!globalReverb && audioCtx) {
         // Create compressor for musical dynamics
@@ -610,11 +606,10 @@
       onPointerUp(e.clientX, e.clientY);
     });
     
-    // Touch support with improved handling
+    // Simplified touch support
     synthArea.addEventListener('touchstart', (e) => {
       e.preventDefault(); // Prevent default touch behavior
-      if (e.touches.length === 1 && !isTouchActive) { // Only handle single touch
-        isTouchActive = true;
+      if (e.touches.length === 1) { // Only handle single touch
         const touch = e.touches[0];
         onPointerDown(touch.clientX, touch.clientY);
       }
@@ -622,7 +617,7 @@
     
     synthArea.addEventListener('touchmove', (e) => {
       e.preventDefault(); // Prevent scrolling while touching
-      if (e.touches.length === 1 && activeVoice && isTouchActive) { // Only move if we have an active voice
+      if (e.touches.length === 1 && activeVoice) { // Only move if we have an active voice
         const touch = e.touches[0];
         onPointerMove(touch.clientX, touch.clientY);
       }
@@ -630,8 +625,7 @@
     
     synthArea.addEventListener('touchend', (e) => {
       e.preventDefault();
-      if (e.changedTouches.length === 1 && isTouchActive) {
-        isTouchActive = false;
+      if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
         onPointerUp(touch.clientX, touch.clientY);
       }
@@ -639,8 +633,7 @@
     
     synthArea.addEventListener('touchcancel', (e) => {
       e.preventDefault();
-      if (e.changedTouches.length === 1 && isTouchActive) {
-        isTouchActive = false;
+      if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
         onPointerUp(touch.clientX, touch.clientY);
       }
