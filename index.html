@@ -21,6 +21,7 @@
       justify-content: center;
       cursor: none;
       user-select: none;
+      touch-action: none; /* Prevent default touch behaviors */
     }
     #info {
       position: absolute;
@@ -207,6 +208,8 @@
     let orbColorIdx = 0;
     let globalReverb = null;
     let globalCompressor = null;
+    let globalLimiter = null;
+    let isTouchActive = false; // Track touch state
 
     function createReverbImpulse(ctx) {
       const sampleRate = ctx.sampleRate;
@@ -297,20 +300,37 @@
         
         // Create fade gain for overall volume control
         this.fadeGain = audioCtx.createGain();
-        this.fadeGain.gain.setValueAtTime(1, audioCtx.currentTime);
+        this.fadeGain.gain.setValueAtTime(0, audioCtx.currentTime); // Start silent
         this.masterGain.connect(this.fadeGain);
+        
+        // Create attack envelope for smooth fade-in
+        this.attackTime = 0.3; // 300ms attack time
+        this.fadeGain.gain.setValueAtTime(0, audioCtx.currentTime);
+        this.fadeGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + this.attackTime);
         
         // Create reverb send
         this.reverbSend = audioCtx.createGain();
-        this.reverbSend.gain.setValueAtTime(1, audioCtx.currentTime); // Full reverb
+        this.reverbSend.gain.setValueAtTime(0.3, audioCtx.currentTime); // Reduced reverb level
         this.fadeGain.connect(this.reverbSend);
         
-        // Connect to global compressor if it exists
+        // Create dry signal send
+        this.drySend = audioCtx.createGain();
+        this.drySend.gain.setValueAtTime(0.7, audioCtx.currentTime); // Dry signal level
+        this.fadeGain.connect(this.drySend);
+        
+        // Connect reverb to compressor if it exists
         if (globalCompressor) {
           this.reverbSend.connect(globalCompressor);
+        } else {
+          this.reverbSend.connect(audioCtx.destination);
         }
         
-        this.fadeGain.connect(audioCtx.destination);
+        // Connect dry signal to limiter to prevent clipping
+        if (globalLimiter) {
+          this.drySend.connect(globalLimiter);
+        } else {
+          this.drySend.connect(audioCtx.destination);
+        }
         this.tremoloOsc.start();
 
         this.createOrb();
@@ -449,6 +469,7 @@
         this.lowpassFilter.disconnect();
         this.masterGain.disconnect();
         this.reverbSend.disconnect();
+        this.drySend.disconnect();
         this.fadeGain.disconnect();
         this.orb.remove();
       }
@@ -461,9 +482,12 @@
     }
 
     function onPointerDown(x, y) {
+      // Prevent creating multiple voices if touch is already active
+      if (isTouchActive) return;
+      
       // Initialize global audio processing if not already done
       if (!globalReverb && audioCtx) {
-        // Create compressor
+        // Create compressor for musical dynamics
         globalCompressor = audioCtx.createDynamicsCompressor();
         globalCompressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
         globalCompressor.knee.setValueAtTime(30, audioCtx.currentTime);
@@ -471,13 +495,22 @@
         globalCompressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
         globalCompressor.release.setValueAtTime(0.25, audioCtx.currentTime);
         
+        // Create limiter to prevent clipping
+        globalLimiter = audioCtx.createDynamicsCompressor();
+        globalLimiter.threshold.setValueAtTime(-1, audioCtx.currentTime); // 1dB below 0dB for safety
+        globalLimiter.knee.setValueAtTime(0, audioCtx.currentTime); // Hard knee
+        globalLimiter.ratio.setValueAtTime(100, audioCtx.currentTime); // Very high ratio for limiting
+        globalLimiter.attack.setValueAtTime(0.001, audioCtx.currentTime); // Very fast attack (1ms)
+        globalLimiter.release.setValueAtTime(0.05, audioCtx.currentTime); // Fast release (50ms)
+        
         // Create reverb
         globalReverb = audioCtx.createConvolver();
         globalReverb.buffer = createReverbImpulse(audioCtx);
         
-        // Connect: compressor -> reverb -> destination
+        // Connect: compressor -> reverb -> limiter -> destination
         globalCompressor.connect(globalReverb);
-        globalReverb.connect(audioCtx.destination);
+        globalReverb.connect(globalLimiter);
+        globalLimiter.connect(audioCtx.destination);
       }
       
       const colorSet = getNextColorSet();
@@ -546,6 +579,19 @@
           if (voice.fadeInterval) {
             clearInterval(voice.fadeInterval);
             voice.fadeInterval = null;
+            // Restore opacity and volume when re-enabling infinity mode
+            voice.orb.style.opacity = '0.7';
+            // Use attack envelope for smooth volume restoration
+            voice.fadeGain.gain.setValueAtTime(voice.fadeGain.gain.value, audioCtx.currentTime);
+            voice.fadeGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + voice.attackTime);
+            // Don't restart pulse animation - keep orbs static
+          }
+        });
+      } else {
+        // Start fade-out on all existing orbs when infinity mode is disabled
+        voices.forEach(voice => {
+          if (!voice.fadeInterval) {
+            voice.startFadeOut();
           }
         });
       }
@@ -563,23 +609,42 @@
     synthArea.addEventListener('mouseleave', (e) => {
       onPointerUp(e.clientX, e.clientY);
     });
-    // Touch support
+    
+    // Touch support with improved handling
     synthArea.addEventListener('touchstart', (e) => {
-      const touch = e.touches[0];
-      onPointerDown(touch.clientX, touch.clientY);
-    });
+      e.preventDefault(); // Prevent default touch behavior
+      if (e.touches.length === 1 && !isTouchActive) { // Only handle single touch
+        isTouchActive = true;
+        const touch = e.touches[0];
+        onPointerDown(touch.clientX, touch.clientY);
+      }
+    }, { passive: false });
+    
     synthArea.addEventListener('touchmove', (e) => {
-      const touch = e.touches[0];
-      onPointerMove(touch.clientX, touch.clientY);
-    });
+      e.preventDefault(); // Prevent scrolling while touching
+      if (e.touches.length === 1 && activeVoice && isTouchActive) { // Only move if we have an active voice
+        const touch = e.touches[0];
+        onPointerMove(touch.clientX, touch.clientY);
+      }
+    }, { passive: false });
+    
     synthArea.addEventListener('touchend', (e) => {
-      const touch = e.changedTouches[0];
-      onPointerUp(touch.clientX, touch.clientY);
-    });
+      e.preventDefault();
+      if (e.changedTouches.length === 1 && isTouchActive) {
+        isTouchActive = false;
+        const touch = e.changedTouches[0];
+        onPointerUp(touch.clientX, touch.clientY);
+      }
+    }, { passive: false });
+    
     synthArea.addEventListener('touchcancel', (e) => {
-      const touch = e.changedTouches[0];
-      onPointerUp(touch.clientX, touch.clientY);
-    });
+      e.preventDefault();
+      if (e.changedTouches.length === 1 && isTouchActive) {
+        isTouchActive = false;
+        const touch = e.changedTouches[0];
+        onPointerUp(touch.clientX, touch.clientY);
+      }
+    }, { passive: false });
   </script>
 </body>
-</html> 
+</html>
