@@ -417,7 +417,7 @@
     let globalReverb = null;
     let globalCompressor = null;
     let globalLimiter = null;
-    let scaleVisible = true;
+    let quantizationActive = false;
     let arpeggiatorActive = false;
     let arpeggiatorInterval = null;
     let currentArpeggioNotes = [];
@@ -433,7 +433,7 @@
     let shootingStarSpawnTimeouts = [];
     let gravityEnabled = false;
 
-    function spawnShootingStarsPhysics(centerX, centerY, count = 7, delay = 180) {
+    function spawnShootingStarsPhysics(centerX, centerY, count = 3, delay = 250) {
       // Don't clear existing stars - let them be pulled to the new center
       shootingStarOrbiting = true;
       shootingStarCenter = { x: centerX, y: centerY };
@@ -481,7 +481,7 @@
       
       // Spawn a new star every 800ms while holding, if under the limit
       window.continuousStarInterval = setInterval(() => {
-        if (shootingStars.length < 8 && gravityEnabled) {
+        if (shootingStars.length < 16 && gravityEnabled) {
           spawnSingleShootingStarPhysics(centerX, centerY, 0, 1);
         }
       }, 800);
@@ -525,8 +525,18 @@
         color1 = voices[voices.length-1].colorSet[1];
         color2 = voices[voices.length-1].colorSet[2];
       }
-      star.style.background = `linear-gradient(90deg, #fff, ${color1}, ${color2}, transparent)`;
-      star.style.boxShadow = `0 0 12px 4px ${color1}88`;
+      // Minimalist: small solid center, variable glow
+      const centerSize = 3 + Math.floor(Math.random() * 5); // 3-4px
+      const glowRadius = 8 + Math.floor(Math.random() * 30); // 8-14px
+      star.style.width = `${centerSize}px`;
+      star.style.height = `${centerSize}px`;
+      star.style.background = color1; // solid center
+      star.style.borderRadius = '50%';
+      star.style.boxShadow = `0 0 ${glowRadius}px ${Math.floor(glowRadius/2)}px ${color2}88`;
+      star.style.pointerEvents = 'none';
+      star.style.position = 'fixed';
+      star.style.zIndex = 10000;
+      star.style.opacity = 0.9;
       document.body.appendChild(star);
       // Initial velocity: mostly tangential to the center for a natural arc
       const dx = centerX - startX;
@@ -549,7 +559,7 @@
         age: 0,
         fadeTimer: null
       });
-      console.log('Shooting star created:', {x: startX, y: startY, vx, vy, color1, color2});
+      //console.log('Shooting star created:', {x: startX, y: startY, vx, vy, color1, color2});
     }
 
     function animateShootingStarsPhysics() {
@@ -1122,15 +1132,15 @@
         const maxFreq = 2000;
         const finalFreq = minFreq + (maxFreq - minFreq) * (x / width);
         
-        // Apply quantization if lock is active (scale is hidden)
-        if (!scaleVisible) {
+        // Apply quantization only if quantizationActive
+        if (quantizationActive) {
           activeVoice.applyQuantization();
         }
         
         // Start arpeggiator if active (independent of quantization)
         if (arpeggiatorActive) {
           // Use quantized frequency if quantization was applied, otherwise use original frequency
-          const arpeggioFreq = !scaleVisible ? 
+          const arpeggioFreq = quantizationActive ? 
             findNearestQuantizedFrequency(finalFreq) : 
             finalFreq;
           startArpeggiator(arpeggioFreq, activeVoice.id);
@@ -1207,8 +1217,8 @@
 
     // Scale visualization toggle
     document.getElementById('scale-btn').addEventListener('click', function() {
-      scaleVisible = !scaleVisible;
-      this.classList.toggle('active', !scaleVisible); // Active when scale is hidden
+      quantizationActive = !quantizationActive;
+      this.classList.toggle('active', quantizationActive);
     });
     
     // Arpeggiator toggle
