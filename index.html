@@ -373,10 +373,8 @@
   <div id="infinity-button">∞</div>
   <button id="scale-btn" class="control-btn">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <!-- Staircase symbol for quantization -->
-      <path d="M4 20L8 16L12 20L16 16L20 20"/>
-      <path d="M4 16L8 12L12 16L16 12L20 16"/>
-      <path d="M4 12L8 8L12 12L16 8L20 12"/>
+      <!-- Simple 2-step staircase going up and to the right -->
+      <path d="M4 20L12 20L12 12L20 12"/>
     </svg>
   </button>
   <button id="arpeggiator-btn" class="control-btn">
@@ -394,6 +392,143 @@
     </svg>
   </button>
   <script>
+    // Audio Manager - Centralized audio context and global effects management
+    class AudioManager {
+      constructor() {
+        this.audioCtx = null;
+        this.globalReverb = null;
+        this.globalCompressor = null;
+        this.globalLimiter = null;
+        this.isInitialized = false;
+      }
+
+      async ensureStarted() {
+        if (!this.audioCtx) {
+          this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        
+        if (this.audioCtx.state === 'suspended') {
+          try {
+            await this.audioCtx.resume();
+            console.log('Audio context resumed');
+          } catch (error) {
+            console.error('Failed to resume audio context:', error);
+            return null;
+          }
+        }
+        
+        if (!this.isInitialized) {
+          this.initializeGlobalEffects();
+        }
+        
+        return this.audioCtx;
+      }
+
+      initializeGlobalEffects() {
+        if (!this.audioCtx || this.isInitialized) return;
+
+        // Create compressor for musical dynamics
+        this.globalCompressor = this.audioCtx.createDynamicsCompressor();
+        this.globalCompressor.threshold.setValueAtTime(-24, this.audioCtx.currentTime);
+        this.globalCompressor.knee.setValueAtTime(30, this.audioCtx.currentTime);
+        this.globalCompressor.ratio.setValueAtTime(12, this.audioCtx.currentTime);
+        this.globalCompressor.attack.setValueAtTime(0.003, this.audioCtx.currentTime);
+        this.globalCompressor.release.setValueAtTime(0.25, this.audioCtx.currentTime);
+        
+        // Create limiter to prevent clipping
+        this.globalLimiter = this.audioCtx.createDynamicsCompressor();
+        this.globalLimiter.threshold.setValueAtTime(-1, this.audioCtx.currentTime);
+        this.globalLimiter.knee.setValueAtTime(0, this.audioCtx.currentTime);
+        this.globalLimiter.ratio.setValueAtTime(100, this.audioCtx.currentTime);
+        this.globalLimiter.attack.setValueAtTime(0.001, this.audioCtx.currentTime);
+        this.globalLimiter.release.setValueAtTime(0.05, this.audioCtx.currentTime);
+        
+        // Create reverb
+        this.globalReverb = this.audioCtx.createConvolver();
+        this.globalReverb.buffer = this.createReverbImpulse();
+        
+        // Connect: compressor -> reverb -> limiter -> destination
+        this.globalCompressor.connect(this.globalReverb);
+        this.globalReverb.connect(this.globalLimiter);
+        this.globalLimiter.connect(this.audioCtx.destination);
+        
+        this.isInitialized = true;
+      }
+
+      createReverbImpulse() {
+        const sampleRate = this.audioCtx.sampleRate;
+        const length = sampleRate * 2; // 2 second impulse
+        const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
+        
+        for (let channel = 0; channel < 2; channel++) {
+          const channelData = impulse.getChannelData(channel);
+          for (let i = 0; i < length; i++) {
+            const decay = Math.exp(-i / (sampleRate * 0.5)); // 0.5 second decay
+            channelData[i] = (Math.random() * 2 - 1) * decay * 0.5;
+          }
+        }
+        return impulse;
+      }
+
+      createNoiseBuffer() {
+        const bufferSize = this.audioCtx.sampleRate * 2;
+        const buffer = this.audioCtx.createBuffer(1, bufferSize, this.audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        return buffer;
+      }
+
+      getContext() {
+        return this.audioCtx;
+      }
+
+      getCompressor() {
+        return this.globalCompressor;
+      }
+
+      getLimiter() {
+        return this.globalLimiter;
+      }
+    }
+
+    // State Manager - Centralized state management
+    class SynthState {
+      constructor() {
+        this.infinityMode = false;
+        this.quantizationActive = false;
+        this.arpeggiatorActive = false;
+        this.orbitVisualEnabled = false;
+        this.gravityEnabled = false;
+      }
+
+      setInfinityMode(enabled) {
+        this.infinityMode = enabled;
+        return this;
+      }
+
+      setQuantization(enabled) {
+        this.quantizationActive = enabled;
+        return this;
+      }
+
+      setArpeggiator(enabled) {
+        this.arpeggiatorActive = enabled;
+        return this;
+      }
+
+      setOrbitVisual(enabled) {
+        this.orbitVisualEnabled = enabled;
+        this.gravityEnabled = enabled;
+        return this;
+      }
+    }
+
+    // Initialize managers
+    const audioManager = new AudioManager();
+    const synthState = new SynthState();
+
     const synthArea = document.getElementById('synth-area');
     const waveformPanel = document.getElementById('waveform-panel');
     const infinityButton = document.getElementById('infinity-button');
@@ -402,10 +537,8 @@
     const sawSlider = document.getElementById('saw-slider');
     const supersawSlider = document.getElementById('supersaw-slider');
     const noiseSlider = document.getElementById('noise-slider');
-    let audioCtx = null;
     let voices = [];
     let activeVoice = null;
-    let infinityMode = false;
     let orbColors = [
       ['#fff', '#6cf', '#09f'],
       ['#fff', '#fc6', '#f90'],
@@ -416,11 +549,6 @@
       ['#fff', '#6ff', '#0ff'],
     ];
     let orbColorIdx = 0;
-    let globalReverb = null;
-    let globalCompressor = null;
-    let globalLimiter = null;
-    let quantizationActive = false;
-    let arpeggiatorActive = false;
     let arpeggiatorInterval = null;
     let currentArpeggioNotes = [];
     let arpeggioStep = 0;
@@ -433,13 +561,11 @@
     let shootingStarCenter = { x: 0, y: 0 };
     let shootingStarAnimationFrame = null;
     let shootingStarSpawnTimeouts = [];
-    let gravityEnabled = false;
 
     function spawnShootingStarsPhysics(centerX, centerY, count = 3, delay = 250) {
       // Don't clear existing stars - let them be pulled to the new center
       shootingStarOrbiting = true;
       shootingStarCenter = { x: centerX, y: centerY };
-      gravityEnabled = orbitVisualEnabled;
       
       // Reset velocity of existing stars to prevent them from moving too fast
       shootingStars.forEach(star => {
@@ -483,7 +609,7 @@
       
       // Spawn a new star every 800ms while holding, if under the limit
       window.continuousStarInterval = setInterval(() => {
-        if (shootingStars.length < 16 && gravityEnabled) {
+        if (shootingStars.length < 16 && synthState.gravityEnabled) {
           spawnSingleShootingStarPhysics(centerX, centerY, 0, 1);
         }
       }, 800);
@@ -573,13 +699,13 @@
         let dy = center.y - star.y;
         let dist = Math.sqrt(dx*dx + dy*dy);
         // Only apply gravity if enabled
-        if (gravityEnabled) {
+        if (synthState.gravityEnabled) {
           const gravity = 0.7 * Math.min(1, 300 / (dist + 1));
           star.vx += (dx / (dist + 1)) * gravity;
           star.vy += (dy / (dist + 1)) * gravity;
         }
         // Damping - stronger when gravity is disabled (after release)
-        const dampingFactor = gravityEnabled ? 0.995 : 0.98;
+        const dampingFactor = synthState.gravityEnabled ? 0.995 : 0.98;
         star.vx *= dampingFactor;
         star.vy *= dampingFactor;
         star.x += star.vx;
@@ -604,7 +730,7 @@
         const shouldRemove = (
           star.age > 240 || // Too old
           isOffScreen || // Off-screen
-          (!gravityEnabled && currentSpeed < 0.5) // Too slow when not in orbit
+          (!synthState.gravityEnabled && currentSpeed < 0.5) // Too slow when not in orbit
         );
         
         if (shouldRemove && !star.fadeTimer) {
@@ -699,7 +825,7 @@
     
     // Function to play a single arpeggio note
     function playArpeggioNote(frequency) {
-      ensureAudioContextStarted().then(ctx => {
+      audioManager.ensureStarted().then(ctx => {
         if (!ctx) return;
         
         // Create a simple oscillator for the arpeggio note
@@ -716,9 +842,10 @@
         
         osc.connect(gain);
         
-        // Connect to audio output - use globalCompressor if available, otherwise direct to destination
-        if (globalCompressor) {
-          gain.connect(globalCompressor);
+        // Connect to audio output - use compressor if available, otherwise direct to destination
+        const compressor = audioManager.getCompressor();
+        if (compressor) {
+          gain.connect(compressor);
         } else {
           gain.connect(ctx.destination);
         }
@@ -745,49 +872,7 @@
       activeArpeggiators.clear();
     }
 
-    // Function to ensure audio context is started (required for mobile)
-    async function ensureAudioContextStarted() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      
-      // Resume audio context if it's suspended (common on mobile)
-      if (audioCtx.state === 'suspended') {
-        try {
-          await audioCtx.resume();
-          console.log('Audio context resumed');
-        } catch (error) {
-          console.error('Failed to resume audio context:', error);
-        }
-      }
-      
-      return audioCtx;
-    }
 
-    function createReverbImpulse(ctx) {
-      const sampleRate = ctx.sampleRate;
-      const length = sampleRate * 2; // 2 second impulse
-      const impulse = ctx.createBuffer(2, length, sampleRate);
-      
-      for (let channel = 0; channel < 2; channel++) {
-        const channelData = impulse.getChannelData(channel);
-        for (let i = 0; i < length; i++) {
-          const decay = Math.exp(-i / (sampleRate * 0.5)); // 0.5 second decay
-          channelData[i] = (Math.random() * 2 - 1) * decay * 0.5;
-        }
-      }
-      return impulse;
-    }
-
-    function createNoiseBuffer(ctx) {
-      const bufferSize = ctx.sampleRate * 2;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-      }
-      return buffer;
-    }
 
     class Voice {
       constructor(x, y, colorSet) {
@@ -797,7 +882,7 @@
         this.colorSet = colorSet;
         
         // Ensure audio context is started before creating audio nodes
-        ensureAudioContextStarted().then(ctx => {
+        audioManager.ensureStarted().then(ctx => {
           this.setupAudio(ctx);
         }).catch(error => {
           console.error('Failed to start audio context:', error);
@@ -837,7 +922,7 @@
         }
 
         this.noiseSource = ctx.createBufferSource();
-        this.noiseSource.buffer = createNoiseBuffer(ctx);
+        this.noiseSource.buffer = audioManager.createNoiseBuffer();
         this.noiseGain = ctx.createGain();
         this.noiseSource.connect(this.noiseGain);
         this.noiseSource.loop = true;
@@ -893,15 +978,17 @@
         this.fadeGain.connect(this.drySend);
         
         // Connect reverb to compressor if it exists
-        if (globalCompressor) {
-          this.reverbSend.connect(globalCompressor);
+        const compressor = audioManager.getCompressor();
+        if (compressor) {
+          this.reverbSend.connect(compressor);
         } else {
           this.reverbSend.connect(ctx.destination);
         }
         
         // Connect dry signal to limiter to prevent clipping
-        if (globalLimiter) {
-          this.drySend.connect(globalLimiter);
+        const limiter = audioManager.getLimiter();
+        if (limiter) {
+          this.drySend.connect(limiter);
         } else {
           this.drySend.connect(ctx.destination);
         }
@@ -1099,35 +1186,7 @@
 
     function onPointerDown(x, y) {
       // Ensure audio context is started before creating voices (especially important for mobile)
-      ensureAudioContextStarted().then(ctx => {
-        // Initialize global audio processing if not already done
-        if (!globalReverb && ctx) {
-          // Create compressor for musical dynamics
-          globalCompressor = ctx.createDynamicsCompressor();
-          globalCompressor.threshold.setValueAtTime(-24, ctx.currentTime);
-          globalCompressor.knee.setValueAtTime(30, ctx.currentTime);
-          globalCompressor.ratio.setValueAtTime(12, ctx.currentTime);
-          globalCompressor.attack.setValueAtTime(0.003, ctx.currentTime);
-          globalCompressor.release.setValueAtTime(0.25, ctx.currentTime);
-          
-          // Create limiter to prevent clipping
-          globalLimiter = ctx.createDynamicsCompressor();
-          globalLimiter.threshold.setValueAtTime(-1, ctx.currentTime); // 1dB below 0dB for safety
-          globalLimiter.knee.setValueAtTime(0, ctx.currentTime); // Hard knee
-          globalLimiter.ratio.setValueAtTime(100, ctx.currentTime); // Very high ratio for limiting
-          globalLimiter.attack.setValueAtTime(0.001, ctx.currentTime); // Very fast attack (1ms)
-          globalLimiter.release.setValueAtTime(0.05, ctx.currentTime); // Fast release (50ms)
-          
-          // Create reverb
-          globalReverb = ctx.createConvolver();
-          globalReverb.buffer = createReverbImpulse(ctx);
-          
-          // Connect: compressor -> reverb -> limiter -> destination
-          globalCompressor.connect(globalReverb);
-          globalReverb.connect(globalLimiter);
-          globalLimiter.connect(ctx.destination);
-        }
-        
+      audioManager.ensureStarted().then(ctx => {
         const colorSet = getNextColorSet();
         activeVoice = new Voice(x, y, colorSet);
         voices.push(activeVoice);
@@ -1155,14 +1214,14 @@
         const finalFreq = minFreq + (maxFreq - minFreq) * (x / width);
         
         // Apply quantization only if quantizationActive
-        if (quantizationActive) {
+        if (synthState.quantizationActive) {
           activeVoice.applyQuantization();
         }
         
         // Start arpeggiator if active (independent of quantization)
-        if (arpeggiatorActive) {
+        if (synthState.arpeggiatorActive) {
           // Use quantized frequency if quantization was applied, otherwise use original frequency
-          const arpeggioFreq = quantizationActive ? 
+          const arpeggioFreq = synthState.quantizationActive ? 
             findNearestQuantizedFrequency(finalFreq) : 
             finalFreq;
           startArpeggiator(arpeggioFreq, activeVoice.id);
@@ -1173,12 +1232,12 @@
           clearInterval(activeVoice.pulseInterval);
           activeVoice.pulseInterval = null;
         }
-        if (!infinityMode) {
+        if (!synthState.infinityMode) {
           activeVoice.startFadeOut();
         }
         activeVoice = null;
       }
-      gravityEnabled = false;
+      synthState.setOrbitVisual(false);
       stopContinuousStarSpawning();
     }
 
@@ -1215,10 +1274,10 @@
 
     // Toggle infinity mode
     infinityButton.addEventListener('click', () => {
-      infinityMode = !infinityMode;
-      infinityButton.classList.toggle('active', infinityMode);
+      synthState.setInfinityMode(!synthState.infinityMode);
+      infinityButton.classList.toggle('active', synthState.infinityMode);
       
-      if (infinityMode) {
+      if (synthState.infinityMode) {
         // Stop fade-out on all existing orbs
         voices.forEach(voice => {
           if (voice.fadeInterval) {
@@ -1227,8 +1286,11 @@
             // Restore opacity and volume when re-enabling infinity mode
             voice.orb.style.opacity = '0.7';
             // Use attack envelope for smooth volume restoration
-            voice.fadeGain.gain.setValueAtTime(voice.fadeGain.gain.value, audioCtx.currentTime);
-            voice.fadeGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + voice.attackTime);
+            const ctx = audioManager.getContext();
+            if (ctx) {
+              voice.fadeGain.gain.setValueAtTime(voice.fadeGain.gain.value, ctx.currentTime);
+              voice.fadeGain.gain.linearRampToValueAtTime(1, ctx.currentTime + voice.attackTime);
+            }
             // Don't restart pulse animation - keep orbs static
           }
         });
@@ -1244,27 +1306,25 @@
 
     // Scale visualization toggle
     document.getElementById('scale-btn').addEventListener('click', function() {
-      quantizationActive = !quantizationActive;
-      this.classList.toggle('active', quantizationActive);
+      synthState.setQuantization(!synthState.quantizationActive);
+      this.classList.toggle('active', synthState.quantizationActive);
     });
     
     // Arpeggiator toggle
     document.getElementById('arpeggiator-btn').addEventListener('click', function() {
-      arpeggiatorActive = !arpeggiatorActive;
-      this.classList.toggle('active', arpeggiatorActive);
-      console.log('Arpeggiator toggled:', arpeggiatorActive);
+      synthState.setArpeggiator(!synthState.arpeggiatorActive);
+      this.classList.toggle('active', synthState.arpeggiatorActive);
+      console.log('Arpeggiator toggled:', synthState.arpeggiatorActive);
       
-      if (!arpeggiatorActive) {
+      if (!synthState.arpeggiatorActive) {
         stopAllArpeggiators();
       }
     });
 
-    let orbitVisualEnabled = false;
     document.getElementById('orbit-visual-btn').addEventListener('click', function() {
-      orbitVisualEnabled = !orbitVisualEnabled;
-      this.classList.toggle('active', orbitVisualEnabled);
-      gravityEnabled = orbitVisualEnabled;
-      if (!orbitVisualEnabled) {
+      synthState.setOrbitVisual(!synthState.orbitVisualEnabled);
+      this.classList.toggle('active', synthState.orbitVisualEnabled);
+      if (!synthState.orbitVisualEnabled) {
         clearShootingStars();
       } else {
         // Prepare for new stars and animation loop on next click
@@ -1275,7 +1335,7 @@
 
     // Update shooting star event handlers to check orbitVisualEnabled
     synthArea.addEventListener('mousedown', (e) => {
-      if (orbitVisualEnabled) spawnShootingStarsPhysics(e.clientX, e.clientY);
+      if (synthState.orbitVisualEnabled) spawnShootingStarsPhysics(e.clientX, e.clientY);
       onPointerDown(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mousemove', (e) => {
@@ -1283,33 +1343,73 @@
     });
     synthArea.addEventListener('mouseup', (e) => {
       onPointerUp(e.clientX, e.clientY);
-      gravityEnabled = false;
     });
     synthArea.addEventListener('mouseleave', (e) => {
       onPointerUp(e.clientX, e.clientY);
-      gravityEnabled = false;
     });
-    // Touch support
+    // Touch support with double-touch prevention
+    let lastTouchTime = 0;
+    let touchStartTime = 0;
+    let isTouchActive = false;
+    
     synthArea.addEventListener('touchstart', (e) => {
+      e.preventDefault(); // Prevent default touch behaviors
       if (e.touches.length === 1) {
+        const now = Date.now();
         const touch = e.touches[0];
-        if (orbitVisualEnabled) spawnShootingStarsPhysics(touch.clientX, touch.clientY);
+        
+        // Prevent rapid successive touches (debounce)
+        if (now - lastTouchTime < 100) {
+          return;
+        }
+        
+        // Prevent double-touch if already active
+        if (isTouchActive) {
+          return;
+        }
+        
+        touchStartTime = now;
+        isTouchActive = true;
+        lastTouchTime = now;
+        
+        if (synthState.orbitVisualEnabled) spawnShootingStarsPhysics(touch.clientX, touch.clientY);
         onPointerDown(touch.clientX, touch.clientY);
       }
     }, { passive: false });
+    
     synthArea.addEventListener('touchend', (e) => {
+      e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
-        onPointerUp(touch.clientX, touch.clientY);
+        const now = Date.now();
+        
+        // Only process if this was a valid touch (not too short, not too long)
+        if (isTouchActive && (now - touchStartTime) > 50 && (now - touchStartTime) < 5000) {
+          onPointerUp(touch.clientX, touch.clientY);
+        }
+        
+        isTouchActive = false;
       }
-      gravityEnabled = false;
     }, { passive: false });
+    
     synthArea.addEventListener('touchcancel', (e) => {
+      e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
-        onPointerUp(touch.clientX, touch.clientY);
+        if (isTouchActive) {
+          onPointerUp(touch.clientX, touch.clientY);
+        }
+        isTouchActive = false;
       }
-      gravityEnabled = false;
+    }, { passive: false });
+    
+    // Prevent touchmove from scrolling the page
+    synthArea.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1 && isTouchActive) {
+        const touch = e.touches[0];
+        onPointerMove(touch.clientX, touch.clientY);
+      }
     }, { passive: false });
 
     // Update custom cursor position
@@ -1323,8 +1423,9 @@
     
     // Handle page visibility changes (important for mobile)
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume().then(() => {
+      const ctx = audioManager.getContext();
+      if (document.visibilityState === 'visible' && ctx && ctx.state === 'suspended') {
+        ctx.resume().then(() => {
           console.log('Audio context resumed after page became visible');
         }).catch(error => {
           console.error('Failed to resume audio context after visibility change:', error);
