@@ -169,10 +169,25 @@
       transition: left 0.1s ease-out, top 0.1s ease-out;
       display: block;
     }
+    
+    /* Custom cursor */
+    #custom-cursor {
+      position: fixed;
+      width: 10px;
+      height: 10px;
+      border: 2px solid white;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(-50%, -50%);
+      transition: none;
+      opacity: 80;
+    }
   </style>
 </head>
 <body>
   <div id="synth-area"></div>
+  <div id="custom-cursor"></div>
   <div id="control-panel">
     <div id="toggle-button">△</div>
     <div id="waveform-panel">
@@ -638,6 +653,15 @@
         onPointerUp(touch.clientX, touch.clientY);
       }
     }, { passive: false });
+
+    // Update custom cursor position
+    document.addEventListener('mousemove', (e) => {
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top = e.clientY + 'px';
+      }
+    });
   </script>
 </body>
 </html>
