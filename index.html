@@ -1280,24 +1280,10 @@
       }
     });
 
-    // Update shooting star event handlers to check orbitVisualEnabled
-    synthArea.addEventListener('mousedown', (e) => {
-      if (orbitVisualEnabled) spawnShootingStarsPhysics(e.clientX, e.clientY);
-      onPointerDown(e.clientX, e.clientY);
-    });
-    synthArea.addEventListener('mousemove', (e) => {
-      onPointerMove(e.clientX, e.clientY);
-    });
-    synthArea.addEventListener('mouseup', (e) => {
-      onPointerUp(e.clientX, e.clientY);
-      gravityEnabled = false;
-    });
-    synthArea.addEventListener('mouseleave', (e) => {
-      onPointerUp(e.clientX, e.clientY);
-      gravityEnabled = false;
-    });
-    // Touch support
+    let isTouch = false;
+
     synthArea.addEventListener('touchstart', (e) => {
+      isTouch = true;
       if (e.touches.length === 1) {
         const touch = e.touches[0];
         if (orbitVisualEnabled) spawnShootingStarsPhysics(touch.clientX, touch.clientY);
@@ -1310,6 +1296,7 @@
         onPointerUp(touch.clientX, touch.clientY);
       }
       gravityEnabled = false;
+      setTimeout(() => { isTouch = false; }, 500);
     }, { passive: false });
     synthArea.addEventListener('touchcancel', (e) => {
       if (e.changedTouches.length === 1) {
@@ -1317,7 +1304,14 @@
         onPointerUp(touch.clientX, touch.clientY);
       }
       gravityEnabled = false;
+      setTimeout(() => { isTouch = false; }, 500);
     }, { passive: false });
+
+    synthArea.addEventListener('mousedown', (e) => {
+      if (isTouch) return;
+      if (orbitVisualEnabled) spawnShootingStarsPhysics(e.clientX, e.clientY);
+      onPointerDown(e.clientX, e.clientY);
+    });
 
     // Update custom cursor position
     document.addEventListener('mousemove', (e) => {
