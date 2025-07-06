@@ -752,24 +752,63 @@
       activeArpeggiators.clear();
     }
 
-    // Function to ensure audio context is started (required for mobile)
+    // Add overlay for audio unlock prompt
+    const audioOverlay = document.createElement('div');
+    audioOverlay.id = 'audio-overlay';
+    audioOverlay.style.position = 'fixed';
+    audioOverlay.style.top = '0';
+    audioOverlay.style.left = '0';
+    audioOverlay.style.width = '100vw';
+    audioOverlay.style.height = '100vh';
+    audioOverlay.style.background = 'rgba(0,0,0,0.85)';
+    audioOverlay.style.color = '#fff';
+    audioOverlay.style.display = 'flex';
+    audioOverlay.style.alignItems = 'center';
+    audioOverlay.style.justifyContent = 'center';
+    audioOverlay.style.fontSize = '2rem';
+    audioOverlay.style.zIndex = '99999';
+    audioOverlay.style.fontFamily = 'monospace';
+    audioOverlay.innerText = 'Tap to enable sound';
+    audioOverlay.style.transition = 'opacity 0.3s';
+    audioOverlay.style.opacity = '0';
+    document.body.appendChild(audioOverlay);
+
     async function ensureAudioContextStarted() {
-      if (!audioCtx) {
+      if (!audioCtx || audioCtx.state === 'closed') {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
-      
-      // Resume audio context if it's suspended (common on mobile)
       if (audioCtx.state === 'suspended') {
         try {
           await audioCtx.resume();
           console.log('Audio context resumed');
         } catch (error) {
           console.error('Failed to resume audio context:', error);
+          showAudioOverlay();
         }
       }
-      
+      if (audioCtx.state !== 'running') {
+        showAudioOverlay();
+      } else {
+        hideAudioOverlay();
+      }
       return audioCtx;
     }
+
+    function showAudioOverlay() {
+      audioOverlay.style.opacity = '1';
+      audioOverlay.style.pointerEvents = 'all';
+    }
+    function hideAudioOverlay() {
+      audioOverlay.style.opacity = '0';
+      audioOverlay.style.pointerEvents = 'none';
+    }
+
+    // Try to resume audio context on every user gesture
+    ['mousedown', 'touchstart'].forEach(evt => {
+      window.addEventListener(evt, () => {
+        ensureAudioContextStarted();
+      });
+    });
 
     function createReverbImpulse(ctx) {
       const sampleRate = ctx.sampleRate;
