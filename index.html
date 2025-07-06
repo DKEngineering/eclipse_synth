@@ -225,6 +225,25 @@
     let globalCompressor = null;
     let globalLimiter = null;
 
+    // Function to ensure audio context is started (required for mobile)
+    async function ensureAudioContextStarted() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      // Resume audio context if it's suspended (common on mobile)
+      if (audioCtx.state === 'suspended') {
+        try {
+          await audioCtx.resume();
+          console.log('Audio context resumed');
+        } catch (error) {
+          console.error('Failed to resume audio context:', error);
+        }
+      }
+      
+      return audioCtx;
+    }
+
     function createReverbImpulse(ctx) {
       const sampleRate = ctx.sampleRate;
       const length = sampleRate * 2; // 2 second impulse
@@ -252,122 +271,135 @@
 
     class Voice {
       constructor(x, y, colorSet) {
-        if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
         this.x = x;
         this.y = y;
         this.colorSet = colorSet;
-        this.sineOsc = audioCtx.createOscillator();
+        
+        // Ensure audio context is started before creating audio nodes
+        ensureAudioContextStarted().then(ctx => {
+          this.setupAudio(ctx);
+        }).catch(error => {
+          console.error('Failed to start audio context:', error);
+        });
+      }
+      
+      async setupAudio(ctx) {
+        this.sineOsc = ctx.createOscillator();
         this.sineOsc.type = 'sine';
-        this.sineGain = audioCtx.createGain();
+        this.sineGain = ctx.createGain();
         this.sineOsc.connect(this.sineGain);
         this.sineOsc.start();
 
-        this.squareOsc = audioCtx.createOscillator();
+        this.squareOsc = ctx.createOscillator();
         this.squareOsc.type = 'square';
-        this.squareGain = audioCtx.createGain();
+        this.squareGain = ctx.createGain();
         this.squareOsc.connect(this.squareGain);
         this.squareOsc.start();
 
-        this.sawOsc = audioCtx.createOscillator();
+        this.sawOsc = ctx.createOscillator();
         this.sawOsc.type = 'sawtooth';
-        this.sawGain = audioCtx.createGain();
+        this.sawGain = ctx.createGain();
         this.sawOsc.connect(this.sawGain);
         this.sawOsc.start();
 
-        this.noiseSource = audioCtx.createBufferSource();
-        this.noiseSource.buffer = createNoiseBuffer(audioCtx);
-        this.noiseGain = audioCtx.createGain();
+        this.noiseSource = ctx.createBufferSource();
+        this.noiseSource.buffer = createNoiseBuffer(ctx);
+        this.noiseGain = ctx.createGain();
         this.noiseSource.connect(this.noiseGain);
         this.noiseSource.loop = true;
         this.noiseSource.start();
 
-        this.masterGain = audioCtx.createGain();
-        this.masterGain.gain.setValueAtTime(0.2, audioCtx.currentTime); // Reduce individual orb volume
+        this.masterGain = ctx.createGain();
+        this.masterGain.gain.setValueAtTime(0.2, ctx.currentTime); // Reduce individual orb volume
         
         // Create lowpass filter
-        this.lowpassFilter = audioCtx.createBiquadFilter();
+        this.lowpassFilter = ctx.createBiquadFilter();
         this.lowpassFilter.type = 'lowpass';
-        this.lowpassFilter.Q.setValueAtTime(4, audioCtx.currentTime);
+        this.lowpassFilter.Q.setValueAtTime(4, ctx.currentTime);
         
         this.sineGain.connect(this.lowpassFilter);
         this.squareGain.connect(this.lowpassFilter);
         this.sawGain.connect(this.lowpassFilter);
         this.noiseGain.connect(this.lowpassFilter);
         this.lowpassFilter.connect(this.masterGain);
-        // masterGain now connects to fadeGain instead of destination
         
         // Create tremolo oscillator
-        this.tremoloOsc = audioCtx.createOscillator();
-        this.tremoloOsc.frequency.setValueAtTime(1, audioCtx.currentTime); // 1 Hz = 1 second cycle
-        this.tremoloGain = audioCtx.createGain();
-        this.tremoloGain.gain.setValueAtTime(0.1, audioCtx.currentTime); // Tremolo depth (30%)
+        this.tremoloOsc = ctx.createOscillator();
+        this.tremoloOsc.frequency.setValueAtTime(1, ctx.currentTime); // 1 Hz = 1 second cycle
+        this.tremoloGain = ctx.createGain();
+        this.tremoloGain.gain.setValueAtTime(0.1, ctx.currentTime); // Tremolo depth (30%)
         this.tremoloOsc.connect(this.tremoloGain);
         this.tremoloGain.connect(this.lowpassFilter.frequency);
         
         // Create volume tremolo
-        this.volumeTremoloGain = audioCtx.createGain();
-        this.volumeTremoloGain.gain.setValueAtTime(0.2, audioCtx.currentTime); // Volume tremolo depth (20%)
+        this.volumeTremoloGain = ctx.createGain();
+        this.volumeTremoloGain.gain.setValueAtTime(0.2, ctx.currentTime); // Volume tremolo depth (20%)
         this.tremoloOsc.connect(this.volumeTremoloGain);
         this.volumeTremoloGain.connect(this.masterGain.gain);
         
         // Create fade gain for overall volume control
-        this.fadeGain = audioCtx.createGain();
-        this.fadeGain.gain.setValueAtTime(0, audioCtx.currentTime); // Start silent
+        this.fadeGain = ctx.createGain();
+        this.fadeGain.gain.setValueAtTime(0, ctx.currentTime); // Start silent
         this.masterGain.connect(this.fadeGain);
         
         // Create attack envelope for smooth fade-in
         this.attackTime = 0.3; // 300ms attack time
-        this.fadeGain.gain.setValueAtTime(0, audioCtx.currentTime);
-        this.fadeGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + this.attackTime);
+        this.fadeGain.gain.setValueAtTime(0, ctx.currentTime);
+        this.fadeGain.gain.linearRampToValueAtTime(1, ctx.currentTime + this.attackTime);
         
         // Create reverb send
-        this.reverbSend = audioCtx.createGain();
-        this.reverbSend.gain.setValueAtTime(0.3, audioCtx.currentTime); // Reduced reverb level
+        this.reverbSend = ctx.createGain();
+        this.reverbSend.gain.setValueAtTime(0.3, ctx.currentTime); // Reduced reverb level
         this.fadeGain.connect(this.reverbSend);
         
         // Create dry signal send
-        this.drySend = audioCtx.createGain();
-        this.drySend.gain.setValueAtTime(0.7, audioCtx.currentTime); // Dry signal level
+        this.drySend = ctx.createGain();
+        this.drySend.gain.setValueAtTime(0.7, ctx.currentTime); // Dry signal level
         this.fadeGain.connect(this.drySend);
         
         // Connect reverb to compressor if it exists
         if (globalCompressor) {
           this.reverbSend.connect(globalCompressor);
         } else {
-          this.reverbSend.connect(audioCtx.destination);
+          this.reverbSend.connect(ctx.destination);
         }
         
         // Connect dry signal to limiter to prevent clipping
         if (globalLimiter) {
           this.drySend.connect(globalLimiter);
         } else {
-          this.drySend.connect(audioCtx.destination);
+          this.drySend.connect(ctx.destination);
         }
+        
         this.tremoloOsc.start();
-
+        this.audioCtx = ctx; // Store reference to audio context
+        
         this.createOrb();
-        this.setParams(x, y);
+        this.setParams(this.x, this.y);
         this.updateWaveformGains();
       }
+      
       setParams(x, y) {
         this.x = x;
         this.y = y;
+        
+        // Only update audio if audio context is ready
+        if (!this.audioCtx) return;
+        
         const width = window.innerWidth;
         const height = window.innerHeight;
         const minFreq = 20;
         const maxFreq = 2000;
         const freq = minFreq + (maxFreq - minFreq) * (x / width);
-        this.sineOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        this.squareOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        this.sawOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        this.sineOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
+        this.squareOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
+        this.sawOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
         
         // Y controls lowpass filter cutoff (top = bright, bottom = dark)
         const minCutoff = 50;
         const maxCutoff = 8000;
         const cutoff = minCutoff + (maxCutoff - minCutoff) * (1 - y / height);
-        this.lowpassFilter.frequency.setValueAtTime(cutoff, audioCtx.currentTime);
+        this.lowpassFilter.frequency.setValueAtTime(cutoff, this.audioCtx.currentTime);
         
         this.updateOrb(x, y);
       }
@@ -443,7 +475,7 @@
           
           // Fade overall volume to silence
           const fadeVolume = 1 - progress;
-          this.fadeGain.gain.setValueAtTime(fadeVolume, audioCtx.currentTime);
+          this.fadeGain.gain.setValueAtTime(fadeVolume, this.audioCtx.currentTime);
           
           // Fade opacity
           const newOpacity = startOpacity * (1 - progress);
@@ -451,7 +483,7 @@
           
           // Increase tremolo frequency
           const newTremoloFreq = startTremoloFreq + (endTremoloFreq - startTremoloFreq) * progress;
-          this.tremoloOsc.frequency.setValueAtTime(newTremoloFreq, audioCtx.currentTime);
+          this.tremoloOsc.frequency.setValueAtTime(newTremoloFreq, this.audioCtx.currentTime);
           
           if (progress >= 1) {
             clearInterval(this.fadeInterval);
@@ -496,39 +528,44 @@
     }
 
     function onPointerDown(x, y) {
-      // Initialize global audio processing if not already done
-      if (!globalReverb && audioCtx) {
-        // Create compressor for musical dynamics
-        globalCompressor = audioCtx.createDynamicsCompressor();
-        globalCompressor.threshold.setValueAtTime(-24, audioCtx.currentTime);
-        globalCompressor.knee.setValueAtTime(30, audioCtx.currentTime);
-        globalCompressor.ratio.setValueAtTime(12, audioCtx.currentTime);
-        globalCompressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
-        globalCompressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+      // Ensure audio context is started before creating voices (especially important for mobile)
+      ensureAudioContextStarted().then(ctx => {
+        // Initialize global audio processing if not already done
+        if (!globalReverb && ctx) {
+          // Create compressor for musical dynamics
+          globalCompressor = ctx.createDynamicsCompressor();
+          globalCompressor.threshold.setValueAtTime(-24, ctx.currentTime);
+          globalCompressor.knee.setValueAtTime(30, ctx.currentTime);
+          globalCompressor.ratio.setValueAtTime(12, ctx.currentTime);
+          globalCompressor.attack.setValueAtTime(0.003, ctx.currentTime);
+          globalCompressor.release.setValueAtTime(0.25, ctx.currentTime);
+          
+          // Create limiter to prevent clipping
+          globalLimiter = ctx.createDynamicsCompressor();
+          globalLimiter.threshold.setValueAtTime(-1, ctx.currentTime); // 1dB below 0dB for safety
+          globalLimiter.knee.setValueAtTime(0, ctx.currentTime); // Hard knee
+          globalLimiter.ratio.setValueAtTime(100, ctx.currentTime); // Very high ratio for limiting
+          globalLimiter.attack.setValueAtTime(0.001, ctx.currentTime); // Very fast attack (1ms)
+          globalLimiter.release.setValueAtTime(0.05, ctx.currentTime); // Fast release (50ms)
+          
+          // Create reverb
+          globalReverb = ctx.createConvolver();
+          globalReverb.buffer = createReverbImpulse(ctx);
+          
+          // Connect: compressor -> reverb -> limiter -> destination
+          globalCompressor.connect(globalReverb);
+          globalReverb.connect(globalLimiter);
+          globalLimiter.connect(ctx.destination);
+        }
         
-        // Create limiter to prevent clipping
-        globalLimiter = audioCtx.createDynamicsCompressor();
-        globalLimiter.threshold.setValueAtTime(-1, audioCtx.currentTime); // 1dB below 0dB for safety
-        globalLimiter.knee.setValueAtTime(0, audioCtx.currentTime); // Hard knee
-        globalLimiter.ratio.setValueAtTime(100, audioCtx.currentTime); // Very high ratio for limiting
-        globalLimiter.attack.setValueAtTime(0.001, audioCtx.currentTime); // Very fast attack (1ms)
-        globalLimiter.release.setValueAtTime(0.05, audioCtx.currentTime); // Fast release (50ms)
-        
-        // Create reverb
-        globalReverb = audioCtx.createConvolver();
-        globalReverb.buffer = createReverbImpulse(audioCtx);
-        
-        // Connect: compressor -> reverb -> limiter -> destination
-        globalCompressor.connect(globalReverb);
-        globalReverb.connect(globalLimiter);
-        globalLimiter.connect(audioCtx.destination);
-      }
-      
-      const colorSet = getNextColorSet();
-      activeVoice = new Voice(x, y, colorSet);
-      voices.push(activeVoice);
-      activeVoice.updateOrb(x, y, true);
-      activeVoice.updateWaveformGains();
+        const colorSet = getNextColorSet();
+        activeVoice = new Voice(x, y, colorSet);
+        voices.push(activeVoice);
+        activeVoice.updateOrb(x, y, true);
+        activeVoice.updateWaveformGains();
+      }).catch(error => {
+        console.error('Failed to start audio context:', error);
+      });
     }
     function onPointerMove(x, y) {
       if (activeVoice) {
@@ -660,6 +697,17 @@
       if (cursor) {
         cursor.style.left = e.clientX + 'px';
         cursor.style.top = e.clientY + 'px';
+      }
+    });
+    
+    // Handle page visibility changes (important for mobile)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => {
+          console.log('Audio context resumed after page became visible');
+        }).catch(error => {
+          console.error('Failed to resume audio context after visibility change:', error);
+        });
       }
     });
   </script>
