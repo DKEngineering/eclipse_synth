@@ -118,6 +118,81 @@
       border-color: rgba(255,255,255,0.3);
       box-shadow: 0 0 20px rgba(255,255,255,0.3);
     }
+    
+    #scale-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 80px;
+      width: 50px;
+      height: 50px;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      z-index: 20;
+      user-select: none;
+    }
+    
+    #scale-btn svg {
+      width: 24px;
+      height: 24px;
+      stroke: white;
+      fill: none;
+    }
+    
+    #scale-btn:hover {
+      background: rgba(0,0,0,0.5);
+      transform: scale(1.1);
+    }
+    
+    #scale-btn.active {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.3);
+      box-shadow: 0 0 20px rgba(255,255,255,0.3);
+    }
+    
+    #arpeggiator-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 140px;
+      width: 50px;
+      height: 50px;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      z-index: 20;
+      user-select: none;
+    }
+    
+    #arpeggiator-btn svg {
+      width: 24px;
+      height: 24px;
+      stroke: white;
+      fill: none;
+    }
+    
+    #arpeggiator-btn:hover {
+      background: rgba(0,0,0,0.5);
+      transform: scale(1.1);
+    }
+    
+    #arpeggiator-btn.active {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.3);
+      box-shadow: 0 0 20px rgba(255,255,255,0.3);
+    }
+    
     #waveform-panel label {
       display: flex;
       align-items: center;
@@ -170,6 +245,8 @@
       display: block;
     }
     
+
+    
     /* Custom cursor */
     #custom-cursor {
       position: fixed;
@@ -182,6 +259,11 @@
       transform: translate(-50%, -50%);
       transition: none;
       opacity: 80;
+    }
+    
+    /* Hide cursor when mouse is pressed */
+    #custom-cursor.hidden {
+      opacity: 0;
     }
   </style>
 </head>
@@ -198,6 +280,20 @@
     </div>
   </div>
   <div id="infinity-button">∞</div>
+  <button id="scale-btn" class="control-btn">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <circle cx="12" cy="16" r="1"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  </button>
+  <button id="arpeggiator-btn" class="control-btn">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+      <path d="M2 17l10 5 10-5"/>
+      <path d="M2 12l10 5 10-5"/>
+    </svg>
+  </button>
   <script>
     const synthArea = document.getElementById('synth-area');
     const toggleButton = document.getElementById('toggle-button');
@@ -224,6 +320,128 @@
     let globalReverb = null;
     let globalCompressor = null;
     let globalLimiter = null;
+    let scaleVisible = true;
+    let arpeggiatorActive = false;
+    let arpeggiatorInterval = null;
+    let currentArpeggioNotes = [];
+    let arpeggioStep = 0;
+    let activeArpeggiators = new Map(); // Track arpeggiators by voice ID
+    let voiceIdCounter = 0;
+
+    // Function to find nearest quantized frequency
+    function findNearestQuantizedFrequency(frequency) {
+      const minFreq = 20;
+      const maxFreq = 2000;
+      const baseFreq = 261.63; // Middle C (C4)
+      let nearestFreq = frequency;
+      let minDistance = Infinity;
+      
+      // C major scale intervals from C (0, 2, 4, 5, 7, 9, 11 semitones)
+      const cMajorIntervals = [0, 2, 4, 5, 7, 9, 11];
+      
+      // Check all C major scale notes within the synth's range
+      for (let octave = 0; octave <= 8; octave++) {
+        for (let interval of cMajorIntervals) {
+          const scaleFreq = baseFreq * Math.pow(2, octave + interval / 12);
+          if (scaleFreq >= minFreq && scaleFreq <= maxFreq) {
+            const distance = Math.abs(frequency - scaleFreq);
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearestFreq = scaleFreq;
+            }
+          }
+        }
+      }
+      
+      return nearestFreq;
+    }
+
+    // Function to generate triad notes (1-3-5-octave-5-3-1 pattern)
+    function generateTriadArpeggio(baseFreq) {
+      const triad = [
+        baseFreq,                    // 1 (root)
+        baseFreq * Math.pow(2, 4/12), // 3 (major third)
+        baseFreq * Math.pow(2, 7/12), // 5 (perfect fifth)
+        baseFreq * 2,                // octave (root one octave up)
+        baseFreq * Math.pow(2, 7/12), // 5 (perfect fifth)
+        baseFreq * Math.pow(2, 4/12), // 3 (major third)
+        baseFreq                     // 1 (root)
+      ];
+      return triad;
+    }
+
+    // Function to start arpeggiator for a specific voice
+    function startArpeggiator(baseFreq, voiceId) {
+      console.log('Starting arpeggiator for voice', voiceId, 'at frequency', baseFreq);
+      
+      // Stop any existing arpeggiator for this voice
+      stopArpeggiator(voiceId);
+      
+      const arpeggioNotes = generateTriadArpeggio(baseFreq);
+      let step = 0;
+      
+      const interval = setInterval(() => {
+        if (step >= arpeggioNotes.length) {
+          step = 0; // Loop back to start
+        }
+        
+        const freq = arpeggioNotes[step];
+        console.log('Playing arpeggio note:', freq, 'Hz');
+        playArpeggioNote(freq);
+        step++;
+      }, 250); // 0.25 seconds per note
+      
+      // Store the interval for this voice
+      activeArpeggiators.set(voiceId, interval);
+    }
+    
+    // Function to play a single arpeggio note
+    function playArpeggioNote(frequency) {
+      ensureAudioContextStarted().then(ctx => {
+        if (!ctx) return;
+        
+        // Create a simple oscillator for the arpeggio note
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+        
+        // Quick attack and release envelope
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        
+        osc.connect(gain);
+        
+        // Connect to audio output - use globalCompressor if available, otherwise direct to destination
+        if (globalCompressor) {
+          gain.connect(globalCompressor);
+        } else {
+          gain.connect(ctx.destination);
+        }
+        
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.25);
+      });
+    }
+    
+    // Function to stop arpeggiator for a specific voice
+    function stopArpeggiator(voiceId) {
+      const interval = activeArpeggiators.get(voiceId);
+      if (interval) {
+        clearInterval(interval);
+        activeArpeggiators.delete(voiceId);
+      }
+    }
+    
+    // Function to stop all arpeggiators
+    function stopAllArpeggiators() {
+      activeArpeggiators.forEach((interval) => {
+        clearInterval(interval);
+      });
+      activeArpeggiators.clear();
+    }
 
     // Function to ensure audio context is started (required for mobile)
     async function ensureAudioContextStarted() {
@@ -271,6 +489,7 @@
 
     class Voice {
       constructor(x, y, colorSet) {
+        this.id = ++voiceIdCounter;
         this.x = x;
         this.y = y;
         this.colorSet = colorSet;
@@ -403,6 +622,33 @@
         
         this.updateOrb(x, y);
       }
+      
+      applyQuantization() {
+        if (!this.audioCtx) return;
+        
+        const width = window.innerWidth;
+        const minFreq = 20;
+        const maxFreq = 2000;
+        
+        // Get current frequency from x position
+        const currentFreq = minFreq + (maxFreq - minFreq) * (this.x / width);
+        
+        // Find nearest quantized frequency
+        const quantizedFreq = findNearestQuantizedFrequency(currentFreq);
+        
+        // Calculate new x position for quantized frequency
+        const quantizedX = ((quantizedFreq - minFreq) / (maxFreq - minFreq)) * width;
+        
+        // Update position and audio
+        this.x = quantizedX;
+        this.sineOsc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime);
+        this.squareOsc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime);
+        this.sawOsc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime);
+        
+        // Update orb position to quantized location
+        this.updateOrb(quantizedX, this.y);
+      }
+      
       updateWaveformGains() {
         const sineVal = parseFloat(sineSlider.value);
         const squareVal = parseFloat(squareSlider.value);
@@ -487,6 +733,8 @@
           
           if (progress >= 1) {
             clearInterval(this.fadeInterval);
+            // Stop the arpeggiator for this voice when fade-out completes
+            stopArpeggiator(this.id);
             this.destroy();
           }
         }, 16); // ~60fps
@@ -577,6 +825,27 @@
       if (activeVoice) {
         activeVoice.setParams(x, y);
         activeVoice.updateOrb(x, y, true);
+        
+        // Get the final frequency from the voice
+        const width = window.innerWidth;
+        const minFreq = 20;
+        const maxFreq = 2000;
+        const finalFreq = minFreq + (maxFreq - minFreq) * (x / width);
+        
+        // Apply quantization if lock is active (scale is hidden)
+        if (!scaleVisible) {
+          activeVoice.applyQuantization();
+        }
+        
+        // Start arpeggiator if active (independent of quantization)
+        if (arpeggiatorActive) {
+          // Use quantized frequency if quantization was applied, otherwise use original frequency
+          const arpeggioFreq = !scaleVisible ? 
+            findNearestQuantizedFrequency(finalFreq) : 
+            finalFreq;
+          startArpeggiator(arpeggioFreq, activeVoice.id);
+        }
+        
         // Stop the pulse animation when mouse is released
         if (activeVoice.pulseInterval) {
           clearInterval(activeVoice.pulseInterval);
@@ -645,22 +914,59 @@
       }
     });
 
+    // Scale visualization toggle
+    document.getElementById('scale-btn').addEventListener('click', function() {
+      scaleVisible = !scaleVisible;
+      this.classList.toggle('active', !scaleVisible); // Active when scale is hidden
+    });
+    
+    // Arpeggiator toggle
+    document.getElementById('arpeggiator-btn').addEventListener('click', function() {
+      arpeggiatorActive = !arpeggiatorActive;
+      this.classList.toggle('active', arpeggiatorActive);
+      console.log('Arpeggiator toggled:', arpeggiatorActive);
+      
+      if (!arpeggiatorActive) {
+        stopAllArpeggiators();
+      }
+    });
+
     synthArea.addEventListener('mousedown', (e) => {
+      // Hide cursor when mouse is pressed
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.classList.add('hidden');
+      }
       onPointerDown(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mousemove', (e) => {
       onPointerMove(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mouseup', (e) => {
+      // Show cursor when mouse is released
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.classList.remove('hidden');
+      }
       onPointerUp(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mouseleave', (e) => {
+      // Show cursor when mouse leaves the area
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.classList.remove('hidden');
+      }
       onPointerUp(e.clientX, e.clientY);
     });
     
     // Simplified touch support
     synthArea.addEventListener('touchstart', (e) => {
       e.preventDefault(); // Prevent default touch behavior
+      // Hide cursor when touch starts
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.classList.add('hidden');
+      }
       if (e.touches.length === 1) { // Only handle single touch
         const touch = e.touches[0];
         onPointerDown(touch.clientX, touch.clientY);
@@ -677,6 +983,11 @@
     
     synthArea.addEventListener('touchend', (e) => {
       e.preventDefault();
+      // Show cursor when touch ends
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.classList.remove('hidden');
+      }
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
         onPointerUp(touch.clientX, touch.clientY);
@@ -685,6 +996,11 @@
     
     synthArea.addEventListener('touchcancel', (e) => {
       e.preventDefault();
+      // Show cursor when touch is cancelled
+      const cursor = document.getElementById('custom-cursor');
+      if (cursor) {
+        cursor.classList.remove('hidden');
+      }
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
         onPointerUp(touch.clientX, touch.clientY);
@@ -710,6 +1026,8 @@
         });
       }
     });
+    
+
   </script>
 </body>
 </html>
