@@ -229,6 +229,40 @@
       box-shadow: 0 0 20px rgba(255,255,255,0.3);
     }
     
+    #orbit-visual-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 200px;
+      width: 50px;
+      height: 50px;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      z-index: 20;
+      user-select: none;
+    }
+    #orbit-visual-btn svg {
+      width: 24px;
+      height: 24px;
+      stroke: white;
+      fill: none;
+    }
+    #orbit-visual-btn:hover {
+      background: rgba(0,0,0,0.5);
+      transform: scale(1.1);
+    }
+    #orbit-visual-btn.active {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.3);
+      box-shadow: 0 0 20px rgba(255,255,255,0.3);
+    }
+    
     #waveform-panel label {
       display: flex;
       align-items: center;
@@ -352,6 +386,12 @@
       <circle cx="16" cy="16" r="2"/>
     </svg>
   </button>
+  <button id="orbit-visual-btn" class="control-btn">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <ellipse cx="12" cy="12" rx="9" ry="5"/>
+      <circle cx="12" cy="12" r="2.5"/>
+    </svg>
+  </button>
   <script>
     const synthArea = document.getElementById('synth-area');
     const waveformPanel = document.getElementById('waveform-panel');
@@ -385,24 +425,73 @@
     let activeArpeggiators = new Map(); // Track arpeggiators by voice ID
     let voiceIdCounter = 0;
 
-    // --- Shooting Stars Effect (Physics-based) ---
+    // --- Shooting Stars Effect (Physics-based, gravity can be toggled) ---
     let shootingStars = [];
     let shootingStarOrbiting = false;
     let shootingStarCenter = { x: 0, y: 0 };
     let shootingStarAnimationFrame = null;
     let shootingStarSpawnTimeouts = [];
+    let gravityEnabled = false;
 
     function spawnShootingStarsPhysics(centerX, centerY, count = 7, delay = 180) {
-      clearShootingStars();
-      shootingStars = [];
+      // Don't clear existing stars - let them be pulled to the new center
       shootingStarOrbiting = true;
       shootingStarCenter = { x: centerX, y: centerY };
-      for (let i = 0; i < count; i++) {
-        shootingStarSpawnTimeouts.push(setTimeout(() => {
-          spawnSingleShootingStarPhysics(centerX, centerY, i, count);
-        }, i * delay));
+      gravityEnabled = orbitVisualEnabled;
+      
+      // Reset velocity of existing stars to prevent them from moving too fast
+      shootingStars.forEach(star => {
+        const dx = centerX - star.x;
+        const dy = centerY - star.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const speed = 3 + Math.random() * 2; // Slower initial speed for existing stars
+        
+        // Give tangential velocity (like new stars) instead of direct velocity toward center
+        const directAngle = Math.atan2(dy, dx);
+        const tangentialAngle = directAngle + (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 2) * (0.3 + Math.random() * 0.2);
+        const blend = 0.8 + Math.random() * 0.15;
+        star.vx = (Math.cos(tangentialAngle) * speed * blend + Math.cos(directAngle) * speed * (1 - blend)) * 0.5;
+        star.vy = (Math.sin(tangentialAngle) * speed * blend + Math.sin(directAngle) * speed * (1 - blend)) * 0.5;
+        star.age = 0; // Reset age so they don't disappear too quickly
+      });
+      
+      // Initial burst of stars
+      if (shootingStars.length < 8) {
+        for (let i = 0; i < count; i++) {
+          shootingStarSpawnTimeouts.push(setTimeout(() => {
+            spawnSingleShootingStarPhysics(centerX, centerY, i, count);
+          }, i * delay));
+        }
       }
-      animateShootingStarsPhysics();
+      
+      // Start continuous spawning while holding
+      startContinuousStarSpawning(centerX, centerY);
+      
+      // Only start animation if it's not already running
+      if (!shootingStarAnimationFrame) {
+        animateShootingStarsPhysics();
+      }
+    }
+    
+    function startContinuousStarSpawning(centerX, centerY) {
+      // Clear any existing continuous spawn interval
+      if (window.continuousStarInterval) {
+        clearInterval(window.continuousStarInterval);
+      }
+      
+      // Spawn a new star every 800ms while holding, if under the limit
+      window.continuousStarInterval = setInterval(() => {
+        if (shootingStars.length < 8 && gravityEnabled) {
+          spawnSingleShootingStarPhysics(centerX, centerY, 0, 1);
+        }
+      }, 800);
+    }
+
+    function stopContinuousStarSpawning() {
+      if (window.continuousStarInterval) {
+        clearInterval(window.continuousStarInterval);
+        window.continuousStarInterval = null;
+      }
     }
 
     function spawnSingleShootingStarPhysics(centerX, centerY, i, count) {
@@ -468,24 +557,49 @@
       const center = shootingStarCenter;
       shootingStars.forEach(star => {
         // Physics: gravity toward center, velocity, and damping
-        const dx = center.x - star.x;
-        const dy = center.y - star.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        // Gravity weakens with distance for more natural orbits
-        const gravity = 0.7 * Math.min(1, 300 / (dist + 1));
-        star.vx += (dx / (dist + 1)) * gravity;
-        star.vy += (dy / (dist + 1)) * gravity;
-        // Damping
-        star.vx *= 0.995;
-        star.vy *= 0.995;
+        let dx = center.x - star.x;
+        let dy = center.y - star.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        // Only apply gravity if enabled
+        if (gravityEnabled) {
+          const gravity = 0.7 * Math.min(1, 300 / (dist + 1));
+          star.vx += (dx / (dist + 1)) * gravity;
+          star.vy += (dy / (dist + 1)) * gravity;
+        }
+        // Damping - stronger when gravity is disabled (after release)
+        const dampingFactor = gravityEnabled ? 0.995 : 0.98;
+        star.vx *= dampingFactor;
+        star.vy *= dampingFactor;
         star.x += star.vx;
         star.y += star.vy;
         star.age++;
-        // Remove after 240 frames (~4s) or if off-screen
-        if ((star.age > 240 || star.x < -40 || star.x > window.innerWidth + 40 || star.y < -40 || star.y > window.innerHeight + 40) && !star.fadeTimer) {
+        
+        // Calculate current velocity
+        const currentSpeed = Math.sqrt(star.vx * star.vx + star.vy * star.vy);
+        
+        // Robust off-screen check
+        const margin = 40;
+        const isOffScreen = (
+          star.x < -margin ||
+          star.x > window.innerWidth + margin ||
+          star.y < -margin ||
+          star.y > window.innerHeight + margin
+        );
+        if (isOffScreen) {
+          console.log('Star removed for being off-screen:', star.x, star.y);
+        }
+        // Remove if: too old, off-screen, or too slow (when gravity is disabled)
+        const shouldRemove = (
+          star.age > 240 || // Too old
+          isOffScreen || // Off-screen
+          (!gravityEnabled && currentSpeed < 0.5) // Too slow when not in orbit
+        );
+        
+        if (shouldRemove && !star.fadeTimer) {
           star.el.remove();
           shootingStars = shootingStars.filter(s => s !== star);
         }
+        
         star.el.style.left = `${star.x - 4}px`;
         star.el.style.top = `${star.y - 4}px`;
       });
@@ -1032,6 +1146,8 @@
         }
         activeVoice = null;
       }
+      gravityEnabled = false;
+      stopContinuousStarSpawning();
     }
 
     sineSlider.addEventListener('input', () => {
@@ -1106,86 +1222,57 @@
       }
     });
 
-    synthArea.addEventListener('mousedown', (e) => {
-      // Hide cursor when mouse is pressed
-      const cursor = document.getElementById('custom-cursor');
-      if (cursor) {
-        cursor.classList.add('hidden');
+    let orbitVisualEnabled = false;
+    document.getElementById('orbit-visual-btn').addEventListener('click', function() {
+      orbitVisualEnabled = !orbitVisualEnabled;
+      this.classList.toggle('active', orbitVisualEnabled);
+      gravityEnabled = orbitVisualEnabled;
+      if (!orbitVisualEnabled) {
+        clearShootingStars();
+      } else {
+        // Prepare for new stars and animation loop on next click
+        shootingStarOrbiting = true;
+        shootingStarAnimationFrame = null;
       }
-      spawnShootingStarsPhysics(e.clientX, e.clientY);
+    });
+
+    // Update shooting star event handlers to check orbitVisualEnabled
+    synthArea.addEventListener('mousedown', (e) => {
+      if (orbitVisualEnabled) spawnShootingStarsPhysics(e.clientX, e.clientY);
       onPointerDown(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mousemove', (e) => {
       onPointerMove(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mouseup', (e) => {
-      // Show cursor when mouse is released
-      const cursor = document.getElementById('custom-cursor');
-      if (cursor) {
-        cursor.classList.remove('hidden');
-      }
-      clearShootingStars();
       onPointerUp(e.clientX, e.clientY);
+      gravityEnabled = false;
     });
     synthArea.addEventListener('mouseleave', (e) => {
-      // Show cursor when mouse leaves the area
-      const cursor = document.getElementById('custom-cursor');
-      if (cursor) {
-        cursor.classList.remove('hidden');
-      }
-      clearShootingStars();
       onPointerUp(e.clientX, e.clientY);
+      gravityEnabled = false;
     });
-    
-    // Simplified touch support
+    // Touch support
     synthArea.addEventListener('touchstart', (e) => {
-      e.preventDefault(); // Prevent default touch behavior
-      // Hide cursor when touch starts
-      const cursor = document.getElementById('custom-cursor');
-      if (cursor) {
-        cursor.classList.add('hidden');
-      }
-      if (e.touches.length === 1) { // Only handle single touch
+      if (e.touches.length === 1) {
         const touch = e.touches[0];
-        spawnShootingStarsPhysics(touch.clientX, touch.clientY);
+        if (orbitVisualEnabled) spawnShootingStarsPhysics(touch.clientX, touch.clientY);
         onPointerDown(touch.clientX, touch.clientY);
       }
     }, { passive: false });
-    
-    synthArea.addEventListener('touchmove', (e) => {
-      e.preventDefault(); // Prevent scrolling while touching
-      if (e.touches.length === 1 && activeVoice) { // Only move if we have an active voice
-        const touch = e.touches[0];
-        onPointerMove(touch.clientX, touch.clientY);
-      }
-    }, { passive: false });
-    
     synthArea.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      // Show cursor when touch ends
-      const cursor = document.getElementById('custom-cursor');
-      if (cursor) {
-        cursor.classList.remove('hidden');
-      }
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
-        clearShootingStars();
         onPointerUp(touch.clientX, touch.clientY);
       }
+      gravityEnabled = false;
     }, { passive: false });
-    
     synthArea.addEventListener('touchcancel', (e) => {
-      e.preventDefault();
-      // Show cursor when touch is cancelled
-      const cursor = document.getElementById('custom-cursor');
-      if (cursor) {
-        cursor.classList.remove('hidden');
-      }
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
-        clearShootingStars();
         onPointerUp(touch.clientX, touch.clientY);
       }
+      gravityEnabled = false;
     }, { passive: false });
 
     // Update custom cursor position
