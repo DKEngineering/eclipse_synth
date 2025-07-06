@@ -363,9 +363,10 @@
         <path d="M2 20 Q8 8 16 20 Q24 32 30 20" />
       </svg>
       <div class="waveform-controls">
-        <label>∿ <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="1"></label><br>
+        <label>∿ <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="0.5"></label><br>
         <label>⊓ <input type="range" id="square-slider" min="0" max="1" step="0.01" value="0"></label><br>
         <label>⌈ <input type="range" id="saw-slider" min="0" max="1" step="0.01" value="0"></label><br>
+        <label>⧋ <input type="range" id="supersaw-slider" min="0" max="1" step="0.01" value="0"></label><br>
         <label>◊ <input type="range" id="noise-slider" min="0" max="1" step="0.01" value="0"></label>
       </div>
     </div>
@@ -399,6 +400,7 @@
     const sineSlider = document.getElementById('sine-slider');
     const squareSlider = document.getElementById('square-slider');
     const sawSlider = document.getElementById('saw-slider');
+    const supersawSlider = document.getElementById('supersaw-slider');
     const noiseSlider = document.getElementById('noise-slider');
     let audioCtx = null;
     let voices = [];
@@ -821,6 +823,19 @@
         this.sawOsc.connect(this.sawGain);
         this.sawOsc.start();
 
+        // Super Saw: 5 detuned sawtooth oscillators
+        this.superSawOscs = [];
+        this.superSawGain = ctx.createGain();
+        const detuneCents = [-12, -5, 0, 5, 12]; // Detune in cents
+        for (let i = 0; i < 5; i++) {
+          const osc = ctx.createOscillator();
+          osc.type = 'sawtooth';
+          osc.detune.value = detuneCents[i];
+          osc.connect(this.superSawGain);
+          osc.start();
+          this.superSawOscs.push(osc);
+        }
+
         this.noiseSource = ctx.createBufferSource();
         this.noiseSource.buffer = createNoiseBuffer(ctx);
         this.noiseGain = ctx.createGain();
@@ -840,6 +855,7 @@
         this.squareGain.connect(this.lowpassFilter);
         this.sawGain.connect(this.lowpassFilter);
         this.noiseGain.connect(this.lowpassFilter);
+        this.superSawGain.connect(this.lowpassFilter);
         this.lowpassFilter.connect(this.masterGain);
         
         // Create tremolo oscillator
@@ -913,6 +929,8 @@
         this.sineOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
         this.squareOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
         this.sawOsc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
+        // Super Saw
+        this.superSawOscs.forEach(osc => osc.frequency.setValueAtTime(freq, this.audioCtx.currentTime));
         
         // Y controls lowpass filter cutoff (top = bright, bottom = dark)
         const minCutoff = 50;
@@ -944,6 +962,8 @@
         this.sineOsc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime);
         this.squareOsc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime);
         this.sawOsc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime);
+        // Super Saw
+        this.superSawOscs.forEach(osc => osc.frequency.setValueAtTime(quantizedFreq, this.audioCtx.currentTime));
         
         // Update orb position to quantized location
         this.updateOrb(quantizedX, this.y);
@@ -953,12 +973,14 @@
         const sineVal = parseFloat(sineSlider.value);
         const squareVal = parseFloat(squareSlider.value);
         const sawVal = parseFloat(sawSlider.value);
+        const supersawVal = parseFloat(supersawSlider.value);
         const noiseVal = parseFloat(noiseSlider.value);
-        let sum = sineVal + squareVal + sawVal + noiseVal;
+        let sum = sineVal + squareVal + sawVal + supersawVal + noiseVal;
         let norm = sum > 1 ? 1 / sum : 1;
         this.sineGain.gain.value = sineVal * norm;
         this.squareGain.gain.value = squareVal * norm;
         this.sawGain.gain.value = sawVal * norm;
+        this.superSawGain.gain.value = supersawVal * norm;
         this.noiseGain.gain.value = noiseVal * norm;
       }
       createOrb() {
@@ -1171,6 +1193,11 @@
       }
     });
     sawSlider.addEventListener('input', () => {
+      if (activeVoice) {
+        activeVoice.updateWaveformGains();
+      }
+    });
+    supersawSlider.addEventListener('input', () => {
       if (activeVoice) {
         activeVoice.updateWaveformGains();
       }
