@@ -301,6 +301,23 @@
     #custom-cursor.hidden {
       opacity: 0;
     }
+
+    .shooting-star {
+      position: fixed;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: linear-gradient(90deg, #fff, #6cf, transparent);
+      box-shadow: 0 0 12px 4px #fff8;
+      pointer-events: none;
+      z-index: 10000;
+      opacity: 0.9;
+      transition: opacity 0.5s;
+    }
+    .shooting-star.fade {
+      opacity: 0;
+      transition: opacity 0.7s;
+    }
   </style>
 </head>
 <body>
@@ -367,6 +384,125 @@
     let arpeggioStep = 0;
     let activeArpeggiators = new Map(); // Track arpeggiators by voice ID
     let voiceIdCounter = 0;
+
+    // --- Shooting Stars Effect (Physics-based) ---
+    let shootingStars = [];
+    let shootingStarOrbiting = false;
+    let shootingStarCenter = { x: 0, y: 0 };
+    let shootingStarAnimationFrame = null;
+    let shootingStarSpawnTimeouts = [];
+
+    function spawnShootingStarsPhysics(centerX, centerY, count = 7, delay = 180) {
+      clearShootingStars();
+      shootingStars = [];
+      shootingStarOrbiting = true;
+      shootingStarCenter = { x: centerX, y: centerY };
+      for (let i = 0; i < count; i++) {
+        shootingStarSpawnTimeouts.push(setTimeout(() => {
+          spawnSingleShootingStarPhysics(centerX, centerY, i, count);
+        }, i * delay));
+      }
+      animateShootingStarsPhysics();
+    }
+
+    function spawnSingleShootingStarPhysics(centerX, centerY, i, count) {
+      // Start from a ring just outside the viewport
+      const margin = 40;
+      const w = window.innerWidth, h = window.innerHeight;
+      // Pick a random edge (top, right, bottom, left)
+      let startX, startY;
+      const edge = Math.floor(Math.random() * 4);
+      if (edge === 0) { // top
+        startX = Math.random() * w;
+        startY = -margin;
+      } else if (edge === 1) { // right
+        startX = w + margin;
+        startY = Math.random() * h;
+      } else if (edge === 2) { // bottom
+        startX = Math.random() * w;
+        startY = h + margin;
+      } else { // left
+        startX = -margin;
+        startY = Math.random() * h;
+      }
+      const star = document.createElement('div');
+      star.className = 'shooting-star';
+      // Use the color of the current orb (activeVoice or last orb in voices)
+      let color1 = '#fff', color2 = '#6cf';
+      if (activeVoice && activeVoice.colorSet) {
+        color1 = activeVoice.colorSet[1];
+        color2 = activeVoice.colorSet[2];
+      } else if (voices.length > 0 && voices[voices.length-1].colorSet) {
+        color1 = voices[voices.length-1].colorSet[1];
+        color2 = voices[voices.length-1].colorSet[2];
+      }
+      star.style.background = `linear-gradient(90deg, #fff, ${color1}, ${color2}, transparent)`;
+      star.style.boxShadow = `0 0 12px 4px ${color1}88`;
+      document.body.appendChild(star);
+      // Initial velocity: mostly tangential to the center for a natural arc
+      const dx = centerX - startX;
+      const dy = centerY - startY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const speed = 5 + Math.random() * 2; // further reduced speed
+      // Tangential angle (perpendicular to direct path)
+      const directAngle = Math.atan2(dy, dx);
+      const tangentialAngle = directAngle + (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 2) * (0.3 + Math.random() * 0.2); // 27°-45° offset
+      // Blend between tangential and direct for some variety
+      const blend = 0.8 + Math.random() * 0.15; // 0.8-0.95 tangential
+      const vx = Math.cos(tangentialAngle) * speed * blend + Math.cos(directAngle) * speed * (1 - blend);
+      const vy = Math.sin(tangentialAngle) * speed * blend + Math.sin(directAngle) * speed * (1 - blend);
+      shootingStars.push({
+        el: star,
+        x: startX,
+        y: startY,
+        vx: vx,
+        vy: vy,
+        age: 0,
+        fadeTimer: null
+      });
+      console.log('Shooting star created:', {x: startX, y: startY, vx, vy, color1, color2});
+    }
+
+    function animateShootingStarsPhysics() {
+      if (!shootingStarOrbiting) return;
+      const center = shootingStarCenter;
+      shootingStars.forEach(star => {
+        // Physics: gravity toward center, velocity, and damping
+        const dx = center.x - star.x;
+        const dy = center.y - star.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        // Gravity weakens with distance for more natural orbits
+        const gravity = 0.7 * Math.min(1, 300 / (dist + 1));
+        star.vx += (dx / (dist + 1)) * gravity;
+        star.vy += (dy / (dist + 1)) * gravity;
+        // Damping
+        star.vx *= 0.995;
+        star.vy *= 0.995;
+        star.x += star.vx;
+        star.y += star.vy;
+        star.age++;
+        // Remove after 240 frames (~4s) or if off-screen
+        if ((star.age > 240 || star.x < -40 || star.x > window.innerWidth + 40 || star.y < -40 || star.y > window.innerHeight + 40) && !star.fadeTimer) {
+          star.el.remove();
+          shootingStars = shootingStars.filter(s => s !== star);
+        }
+        star.el.style.left = `${star.x - 4}px`;
+        star.el.style.top = `${star.y - 4}px`;
+      });
+      shootingStarAnimationFrame = requestAnimationFrame(animateShootingStarsPhysics);
+    }
+
+    function clearShootingStars() {
+      shootingStars.forEach(star => {
+        if (star.fadeTimer) clearTimeout(star.fadeTimer);
+        star.el.remove();
+      });
+      shootingStars = [];
+      shootingStarOrbiting = false;
+      if (shootingStarAnimationFrame) cancelAnimationFrame(shootingStarAnimationFrame);
+      shootingStarSpawnTimeouts.forEach(t => clearTimeout(t));
+      shootingStarSpawnTimeouts = [];
+    }
 
     // Function to find nearest quantized frequency
     function findNearestQuantizedFrequency(frequency) {
@@ -976,6 +1112,7 @@
       if (cursor) {
         cursor.classList.add('hidden');
       }
+      spawnShootingStarsPhysics(e.clientX, e.clientY);
       onPointerDown(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mousemove', (e) => {
@@ -987,6 +1124,7 @@
       if (cursor) {
         cursor.classList.remove('hidden');
       }
+      clearShootingStars();
       onPointerUp(e.clientX, e.clientY);
     });
     synthArea.addEventListener('mouseleave', (e) => {
@@ -995,6 +1133,7 @@
       if (cursor) {
         cursor.classList.remove('hidden');
       }
+      clearShootingStars();
       onPointerUp(e.clientX, e.clientY);
     });
     
@@ -1008,6 +1147,7 @@
       }
       if (e.touches.length === 1) { // Only handle single touch
         const touch = e.touches[0];
+        spawnShootingStarsPhysics(touch.clientX, touch.clientY);
         onPointerDown(touch.clientX, touch.clientY);
       }
     }, { passive: false });
@@ -1029,6 +1169,7 @@
       }
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
+        clearShootingStars();
         onPointerUp(touch.clientX, touch.clientY);
       }
     }, { passive: false });
@@ -1042,6 +1183,7 @@
       }
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
+        clearShootingStars();
         onPointerUp(touch.clientX, touch.clientY);
       }
     }, { passive: false });
