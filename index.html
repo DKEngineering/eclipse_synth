@@ -942,8 +942,7 @@
         this.x = x;
         this.y = y;
         this.colorSet = colorSet;
-        
-        // Ensure audio context is started before creating audio nodes
+        console.log(`[Voice] CREATED id=${this.id} at (${x},${y}) colorSet=${JSON.stringify(colorSet)}`);
         audioManager.ensureStarted().then(ctx => {
           this.setupAudio(ctx);
         }).catch(error => {
@@ -1183,7 +1182,7 @@
         if (this.fadeInterval) {
           clearInterval(this.fadeInterval);
         }
-        console.log('[Voice] startFadeOut called for orb', this.id);
+        console.log(`[Voice] startFadeOut called for orb id=${this.id}`);
         const fadeDuration = 5000; // 5 seconds
         const startTime = Date.now();
         const startOpacity = 0.8;
@@ -1212,7 +1211,7 @@
         // Failsafe: force destroy after fadeDuration + 1s
         setTimeout(() => {
           if (this.fadeInterval) {
-            console.warn('[Voice] Failsafe destroy for orb', this.id);
+            console.warn(`[Voice] Failsafe destroy for orb id=${this.id}`);
             clearInterval(this.fadeInterval);
             this.fadeInterval = null;
             stopArpeggiator(this.id);
@@ -1222,6 +1221,7 @@
       }
       
       destroy() {
+        console.log(`[Voice] DESTROY id=${this.id}`);
         if (this.pulseInterval) {
           clearInterval(this.pulseInterval);
         }
@@ -1257,6 +1257,7 @@
     }
 
     function onPointerDown(x, y) {
+      console.log(`[onPointerDown] (${x},${y}) activeVoice=${activeVoice ? activeVoice.id : 'null'} isTouchActive=${isTouchActive}`);
       // Ensure audio context is started before creating voices (especially important for mobile)
       audioManager.ensureStarted().then(ctx => {
         const colorSet = getNextColorSet();
@@ -1269,13 +1270,14 @@
     }
     function onPointerMove(x, y) {
       if (activeVoice) {
+        console.log(`[onPointerMove] (${x},${y}) activeVoice=${activeVoice.id}`);
         activeVoice.setParams(x, y);
         activeVoice.updateOrb(x, y, true);
       }
     }
     function onPointerUp(x, y) {
       if (activeVoice) {
-        console.log('[onPointerUp] Triggered for orb', activeVoice.id);
+        console.log(`[onPointerUp] (${x},${y}) activeVoice=${activeVoice.id} isTouchActive=${isTouchActive}`);
         activeVoice.setParams(x, y);
         activeVoice.updateOrb(x, y, true);
         
@@ -1465,7 +1467,7 @@
     let isTouchActive = false;
     
     function handleTouchStart(e) {
-      console.log('[touchstart] target:', e.target, 'touches:', e.touches.length);
+      console.log(`[touchstart] target: ${e.target.tagName} touches: ${e.touches.length} isTouchActive=${isTouchActive}`);
       e.preventDefault();
       if (e.touches.length === 1) {
         const now = Date.now();
@@ -1480,7 +1482,7 @@
       }
     }
     function handleTouchEnd(e) {
-      console.log('[touchend] target:', e.target, 'changedTouches:', e.changedTouches.length);
+      console.log(`[touchend] target: ${e.target.tagName} changedTouches: ${e.changedTouches.length} isTouchActive=${isTouchActive}`);
       e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
@@ -1493,7 +1495,7 @@
       }
     }
     function handleTouchCancel(e) {
-      console.log('[touchcancel] target:', e.target, 'changedTouches:', e.changedTouches.length);
+      console.log(`[touchcancel] target: ${e.target.tagName} changedTouches: ${e.changedTouches.length} isTouchActive=${isTouchActive}`);
       e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
