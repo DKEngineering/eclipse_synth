@@ -386,11 +386,10 @@
         <path d="M2 20 Q8 8 16 20 Q24 32 30 20" />
       </svg>
       <div class="waveform-controls">
-        <label>∿ <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="0.5"></label><br>
+        <label>∿ <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="0"></label><br>
         <label>⊓ <input type="range" id="square-slider" min="0" max="1" step="0.01" value="0"></label><br>
-        <label>⌈ <input type="range" id="saw-slider" min="0" max="1" step="0.01" value="0"></label><br>
-        <label>⧋ <input type="range" id="supersaw-slider" min="0" max="1" step="0.01" value="0"></label><br>
-        <label>◊ <input type="range" id="noise-slider" min="0" max="1" step="0.01" value="0"></label>
+        <label>⧋ <input type="range" id="supersaw-slider" min="0" max="1" step="0.01" value="0.5"></label><br>
+        <label>◊ <input type="range" id="noise-slider" min="0" max="1" step="0.01" value="0.5"></label>
       </div>
     </div>
   <div id="infinity-button">∞</div>
@@ -557,7 +556,6 @@
     const infinityButton = document.getElementById('infinity-button');
     const sineSlider = document.getElementById('sine-slider');
     const squareSlider = document.getElementById('square-slider');
-    const sawSlider = document.getElementById('saw-slider');
     const supersawSlider = document.getElementById('supersaw-slider');
     const noiseSlider = document.getElementById('noise-slider');
     let voices = [];
@@ -1021,7 +1019,12 @@
         
         this.createOrb();
         this.setParams(this.x, this.y);
-        this.updateWaveformGains();
+        // Set default waveform mix: 0 sine, 0 square, 0 saw, 0.5 supersaw, 0.5 noise
+        this.sineGain.gain.value = 0;
+        this.squareGain.gain.value = 0;
+        this.sawGain.gain.value = 0;
+        this.superSawGain.gain.value = 0.5;
+        this.noiseGain.gain.value = 0.5;
       }
       
       setParams(x, y) {
@@ -1082,14 +1085,13 @@
       updateWaveformGains() {
         const sineVal = parseFloat(sineSlider.value);
         const squareVal = parseFloat(squareSlider.value);
-        const sawVal = parseFloat(sawSlider.value);
         const supersawVal = parseFloat(supersawSlider.value);
         const noiseVal = parseFloat(noiseSlider.value);
-        let sum = sineVal + squareVal + sawVal + supersawVal + noiseVal;
+        let sum = sineVal + squareVal + supersawVal + noiseVal;
         let norm = sum > 1 ? 1 / sum : 1;
         this.sineGain.gain.value = sineVal * norm;
         this.squareGain.gain.value = squareVal * norm;
-        this.sawGain.gain.value = sawVal * norm;
+        this.sawGain.gain.value = 0;
         this.superSawGain.gain.value = supersawVal * norm;
         this.noiseGain.gain.value = noiseVal * norm;
       }
@@ -1281,11 +1283,6 @@
       }
     });
     squareSlider.addEventListener('input', () => {
-      if (activeVoice) {
-        activeVoice.updateWaveformGains();
-      }
-    });
-    sawSlider.addEventListener('input', () => {
       if (activeVoice) {
         activeVoice.updateWaveformGains();
       }
