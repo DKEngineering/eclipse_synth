@@ -280,26 +280,26 @@
     }
     #waveform-panel input[type=range]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 12px;
-      height: 12px;
+      width: 18px;
+      height: 18px;
       background: #fff;
       border-radius: 50%;
-      cursor: pointer;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      border: 2px solid #bbb;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      margin-top: -3px; /* Center thumb on 12px track */
     }
     #waveform-panel input[type=range]::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
+      width: 18px;
+      height: 18px;
       background: #fff;
       border-radius: 50%;
-      cursor: pointer;
-      border: none;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      border: 2px solid #bbb;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
     #waveform-panel input[type=range]::-moz-range-track {
-      height: 4px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 2px;
+      height: 12px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 6px;
       border: none;
     }
     .waveform-controls label {
@@ -309,7 +309,6 @@
       gap: 12px;
       opacity: 0.8;
       position: relative;
-      /* For larger clickable area */
       min-height: 36px;
       cursor: pointer;
     }
@@ -323,6 +322,62 @@
       position: relative;
       z-index: 2;
       pointer-events: auto;
+      width: 100px;
+      height: 24px;
+      background: transparent;
+    }
+    /* Center thumb on track for Webkit browsers */
+    .waveform-controls input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      border: 2px solid #bbb;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      margin-top: -3px; /* Center thumb on 12px track */
+    }
+    .waveform-controls input[type=range]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      border: 2px solid #bbb;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .waveform-controls input[type=range]::-ms-thumb {
+      width: 18px;
+      height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      border: 2px solid #bbb;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .waveform-controls input[type=range]::-webkit-slider-runnable-track {
+      height: 12px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 6px;
+    }
+    .waveform-controls input[type=range]::-ms-fill-lower,
+    .waveform-controls input[type=range]::-ms-fill-upper {
+      background: rgba(255,255,255,0.2);
+      border-radius: 6px;
+    }
+    .waveform-controls input[type=range]:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px #6cf;
+    }
+    .waveform-controls input[type=range]:active::-webkit-slider-thumb {
+      background: #6cf;
+      border-color: #09f;
+    }
+    .waveform-controls input[type=range]:active::-moz-range-thumb {
+      background: #6cf;
+      border-color: #09f;
+    }
+    .waveform-controls input[type=range]:active::-ms-thumb {
+      background: #6cf;
+      border-color: #09f;
     }
     .orb-instance {
       position: absolute;
