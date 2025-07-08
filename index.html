@@ -302,6 +302,28 @@
       border-radius: 2px;
       border: none;
     }
+    .waveform-controls label {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      gap: 12px;
+      opacity: 0.8;
+      position: relative;
+      /* For larger clickable area */
+      min-height: 36px;
+      cursor: pointer;
+    }
+    .slider-hitbox {
+      position: absolute;
+      left: 0; right: 0; top: 0; bottom: 0;
+      z-index: 1;
+      cursor: pointer;
+    }
+    .waveform-controls input[type=range] {
+      position: relative;
+      z-index: 2;
+      pointer-events: auto;
+    }
     .orb-instance {
       position: absolute;
       width: 120px;
@@ -329,6 +351,9 @@
       transform: translate(-50%, -50%);
       transition: none;
       opacity: 80;
+    }
+    #custom-cursor.hide-cursor {
+      opacity: 0 !important;
     }
     
     /* Hide cursor when mouse is pressed */
@@ -386,17 +411,33 @@
         <path d="M2 20 Q8 8 16 20 Q24 32 30 20" />
       </svg>
       <div class="waveform-controls">
-        <label>∿ <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="0"></label><br>
-        <label>⊓ <input type="range" id="square-slider" min="0" max="1" step="0.01" value="0"></label><br>
-        <label>⧋ <input type="range" id="supersaw-slider" min="0" max="1" step="0.01" value="0.5"></label><br>
-        <label>◊ <input type="range" id="noise-slider" min="0" max="1" step="0.01" value="0.5"></label>
+        <label>∿
+          <span class="slider-hitbox"></span>
+          <input type="range" id="sine-slider" min="0" max="1" step="0.01" value="0">
+        </label><br>
+        <label>⊓
+          <span class="slider-hitbox"></span>
+          <input type="range" id="square-slider" min="0" max="1" step="0.01" value="0">
+        </label><br>
+        <label>⧋
+          <span class="slider-hitbox"></span>
+          <input type="range" id="supersaw-slider" min="0" max="1" step="0.01" value="0.5">
+        </label><br>
+        <label>◊
+          <span class="slider-hitbox"></span>
+          <input type="range" id="noise-slider" min="0" max="1" step="0.01" value="0.5">
+        </label>
       </div>
     </div>
   <div id="infinity-button">∞</div>
   <button id="scale-btn" class="control-btn">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <!-- Simple 2-step staircase going up and to the right -->
-      <path d="M4 20L12 20L12 12L20 12"/>
+    <svg width="24" height="24" viewBox="0 0 24 24">
+      <!-- Note head -->
+      <ellipse cx="12" cy="16" rx="3" ry="2" fill="white" stroke="white" stroke-width="2"/>
+      <!-- Stem -->
+      <rect x="13" y="4" width="2" height="12" fill="white" />
+      <!-- Flag (tail) -->
+      <!-- <path d="M12 4 Q18 2 13 14" fill="none" stroke="white" stroke-width="3"/> -->
     </svg>
   </button>
   <button id="arpeggiator-btn" class="control-btn">
@@ -1292,9 +1333,28 @@
     });
 
     // Toggle panel visibility
-    waveformPanel.addEventListener('click', () => {
-      waveformPanel.classList.toggle('expanded');
+    waveformPanel.addEventListener('click', (e) => {
+      // Only toggle if clicking the collapsed panel (not already expanded)
+      if (!waveformPanel.classList.contains('expanded')) {
+        waveformPanel.classList.add('expanded');
+        // Add outside click listener
+        setTimeout(() => {
+          document.addEventListener('mousedown', closeWaveformPanelOnOutsideClick);
+          document.addEventListener('touchstart', closeWaveformPanelOnOutsideClick);
+        }, 0);
+      }
+      e.stopPropagation();
     });
+    function closeWaveformPanelOnOutsideClick(e) {
+      if (!waveformPanel.contains(e.target)) {
+        waveformPanel.classList.remove('expanded');
+        document.removeEventListener('mousedown', closeWaveformPanelOnOutsideClick);
+        document.removeEventListener('touchstart', closeWaveformPanelOnOutsideClick);
+      }
+    }
+    // Prevent clicks inside the panel from closing it
+    waveformPanel.addEventListener('mousedown', e => e.stopPropagation());
+    waveformPanel.addEventListener('touchstart', e => e.stopPropagation());
 
     // Toggle infinity mode
     infinityButton.addEventListener('click', () => {
@@ -1479,6 +1539,19 @@
       }
     });
     
+    // Hide custom cursor when hovering over buttons/controls
+    const customCursor = document.getElementById('custom-cursor');
+    function hideCursor() {
+      customCursor.classList.add('hide-cursor');
+    }
+    function showCursor() {
+      customCursor.classList.remove('hide-cursor');
+    }
+    document.querySelectorAll('.control-btn, #waveform-panel, #infinity-button').forEach(el => {
+      el.addEventListener('mouseenter', hideCursor);
+      el.addEventListener('mouseleave', showCursor);
+    });
+
     // Handle page visibility changes (important for mobile)
     document.addEventListener('visibilitychange', () => {
       const ctx = audioManager.getContext();
