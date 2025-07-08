@@ -352,9 +352,32 @@
       opacity: 0;
       transition: opacity 0.7s;
     }
+    /* Overlay for audio unlock */
+    #audio-unlock-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #181818;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      font-family: monospace, sans-serif;
+      font-size: 2rem;
+      letter-spacing: 0.05em;
+      text-align: center;
+      transition: opacity 0.3s;
+    }
+    #audio-unlock-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
+  <div id="audio-unlock-overlay">Tap anywhere to start</div>
   <div id="synth-area"></div>
   <div id="custom-cursor"></div>
   <div id="control-panel">
@@ -1333,27 +1356,55 @@
       }
     });
 
-    // Update shooting star event handlers to check orbitVisualEnabled
-    synthArea.addEventListener('mousedown', (e) => {
+    // Overlay logic
+    const audioUnlockOverlay = document.getElementById('audio-unlock-overlay');
+    let synthEnabled = false;
+
+    function enableSynth() {
+      if (synthEnabled) return;
+      audioManager.ensureStarted().then(ctx => {
+        synthEnabled = true;
+        audioUnlockOverlay.classList.add('hidden');
+        setTimeout(() => {
+          audioUnlockOverlay.style.display = 'none';
+        }, 400);
+      });
+    }
+
+    // Listen for first user gesture
+    audioUnlockOverlay.addEventListener('touchstart', enableSynth, { passive: false });
+    audioUnlockOverlay.addEventListener('mousedown', enableSynth);
+    audioUnlockOverlay.addEventListener('keydown', enableSynth);
+
+    // Block all synth UI events until enabled
+    function synthGuardedHandler(fn) {
+      return function(...args) {
+        if (!synthEnabled) return;
+        return fn.apply(this, args);
+      };
+    }
+
+    // Patch synthArea event handlers to require synthEnabled
+    synthArea.addEventListener('mousedown', synthGuardedHandler((e) => {
       if (synthState.orbitVisualEnabled) spawnShootingStarsPhysics(e.clientX, e.clientY);
       onPointerDown(e.clientX, e.clientY);
-    });
-    synthArea.addEventListener('mousemove', (e) => {
+    }));
+    synthArea.addEventListener('mousemove', synthGuardedHandler((e) => {
       onPointerMove(e.clientX, e.clientY);
-    });
-    synthArea.addEventListener('mouseup', (e) => {
+    }));
+    synthArea.addEventListener('mouseup', synthGuardedHandler((e) => {
       onPointerUp(e.clientX, e.clientY);
-    });
-    synthArea.addEventListener('mouseleave', (e) => {
+    }));
+    synthArea.addEventListener('mouseleave', synthGuardedHandler((e) => {
       onPointerUp(e.clientX, e.clientY);
-    });
+    }));
     // Touch support with double-touch prevention
     let lastTouchTime = 0;
     let touchStartTime = 0;
     let isTouchActive = false;
     
-    synthArea.addEventListener('touchstart', (e) => {
-      e.preventDefault(); // Prevent default touch behaviors
+    synthArea.addEventListener('touchstart', synthGuardedHandler((e) => {
+      e.preventDefault();
       if (e.touches.length === 1) {
         const now = Date.now();
         const touch = e.touches[0];
@@ -1375,9 +1426,9 @@
         if (synthState.orbitVisualEnabled) spawnShootingStarsPhysics(touch.clientX, touch.clientY);
         onPointerDown(touch.clientX, touch.clientY);
       }
-    }, { passive: false });
+    }), { passive: false });
     
-    synthArea.addEventListener('touchend', (e) => {
+    synthArea.addEventListener('touchend', synthGuardedHandler((e) => {
       e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
@@ -1390,9 +1441,9 @@
         
         isTouchActive = false;
       }
-    }, { passive: false });
+    }), { passive: false });
     
-    synthArea.addEventListener('touchcancel', (e) => {
+    synthArea.addEventListener('touchcancel', synthGuardedHandler((e) => {
       e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
@@ -1401,16 +1452,16 @@
         }
         isTouchActive = false;
       }
-    }, { passive: false });
+    }), { passive: false });
     
     // Prevent touchmove from scrolling the page
-    synthArea.addEventListener('touchmove', (e) => {
+    synthArea.addEventListener('touchmove', synthGuardedHandler((e) => {
       e.preventDefault();
       if (e.touches.length === 1 && isTouchActive) {
         const touch = e.touches[0];
         onPointerMove(touch.clientX, touch.clientY);
       }
-    }, { passive: false });
+    }), { passive: false });
 
     // Update custom cursor position
     document.addEventListener('mousemove', (e) => {
