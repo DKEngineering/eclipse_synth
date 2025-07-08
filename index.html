@@ -1139,37 +1139,47 @@
         // Stop the pulse when fading out
         if (this.pulseInterval) {
           clearInterval(this.pulseInterval);
+          this.pulseInterval = null;
         }
-        
+        if (this.fadeInterval) {
+          clearInterval(this.fadeInterval);
+        }
+        console.log('[Voice] startFadeOut called for orb', this.id);
         const fadeDuration = 5000; // 5 seconds
         const startTime = Date.now();
         const startOpacity = 0.8;
         const startTremoloFreq = 1; // Starting tremolo frequency
         const endTremoloFreq = 8; // Ending tremolo frequency (8 Hz)
-        
         this.fadeInterval = setInterval(() => {
           const elapsed = Date.now() - startTime;
           const progress = Math.min(elapsed / fadeDuration, 1);
-          
           // Fade overall volume to silence
           const fadeVolume = 1 - progress;
           this.fadeGain.gain.setValueAtTime(fadeVolume, this.audioCtx.currentTime);
-          
           // Fade opacity
           const newOpacity = startOpacity * (1 - progress);
           this.orb.style.opacity = newOpacity.toString();
-          
           // Increase tremolo frequency
           const newTremoloFreq = startTremoloFreq + (endTremoloFreq - startTremoloFreq) * progress;
           this.tremoloOsc.frequency.setValueAtTime(newTremoloFreq, this.audioCtx.currentTime);
-          
           if (progress >= 1) {
             clearInterval(this.fadeInterval);
+            this.fadeInterval = null;
             // Stop the arpeggiator for this voice when fade-out completes
             stopArpeggiator(this.id);
             this.destroy();
           }
         }, 16); // ~60fps
+        // Failsafe: force destroy after fadeDuration + 1s
+        setTimeout(() => {
+          if (this.fadeInterval) {
+            console.warn('[Voice] Failsafe destroy for orb', this.id);
+            clearInterval(this.fadeInterval);
+            this.fadeInterval = null;
+            stopArpeggiator(this.id);
+            this.destroy();
+          }
+        }, fadeDuration + 1200);
       }
       
       destroy() {
@@ -1227,6 +1237,7 @@
     }
     function onPointerUp(x, y) {
       if (activeVoice) {
+        console.log('[onPointerUp] Triggered for orb', activeVoice.id);
         activeVoice.setParams(x, y);
         activeVoice.updateOrb(x, y, true);
         
@@ -1403,47 +1414,36 @@
     let touchStartTime = 0;
     let isTouchActive = false;
     
-    synthArea.addEventListener('touchstart', synthGuardedHandler((e) => {
+    function handleTouchStart(e) {
+      console.log('[touchstart] target:', e.target, 'touches:', e.touches.length);
       e.preventDefault();
       if (e.touches.length === 1) {
         const now = Date.now();
         const touch = e.touches[0];
-        
-        // Prevent rapid successive touches (debounce)
-        if (now - lastTouchTime < 100) {
-          return;
-        }
-        
-        // Prevent double-touch if already active
-        if (isTouchActive) {
-          return;
-        }
-        
+        if (now - lastTouchTime < 100) return;
+        if (isTouchActive) return;
         touchStartTime = now;
         isTouchActive = true;
         lastTouchTime = now;
-        
         if (synthState.orbitVisualEnabled) spawnShootingStarsPhysics(touch.clientX, touch.clientY);
         onPointerDown(touch.clientX, touch.clientY);
       }
-    }), { passive: false });
-    
-    synthArea.addEventListener('touchend', synthGuardedHandler((e) => {
+    }
+    function handleTouchEnd(e) {
+      console.log('[touchend] target:', e.target, 'changedTouches:', e.changedTouches.length);
       e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
         const now = Date.now();
-        
-        // Only process if this was a valid touch (not too short, not too long)
         if (isTouchActive && (now - touchStartTime) > 50 && (now - touchStartTime) < 5000) {
           onPointerUp(touch.clientX, touch.clientY);
         }
-        
         isTouchActive = false;
+        activeVoice = null;
       }
-    }), { passive: false });
-    
-    synthArea.addEventListener('touchcancel', synthGuardedHandler((e) => {
+    }
+    function handleTouchCancel(e) {
+      console.log('[touchcancel] target:', e.target, 'changedTouches:', e.changedTouches.length);
       e.preventDefault();
       if (e.changedTouches.length === 1) {
         const touch = e.changedTouches[0];
@@ -1451,17 +1451,34 @@
           onPointerUp(touch.clientX, touch.clientY);
         }
         isTouchActive = false;
+        activeVoice = null;
       }
-    }), { passive: false });
-    
-    // Prevent touchmove from scrolling the page
-    synthArea.addEventListener('touchmove', synthGuardedHandler((e) => {
+    }
+    function handleTouchMove(e) {
+      // No log for move to avoid spam
       e.preventDefault();
       if (e.touches.length === 1 && isTouchActive) {
         const touch = e.touches[0];
         onPointerMove(touch.clientX, touch.clientY);
       }
-    }), { passive: false });
+    }
+    synthArea.addEventListener('touchstart', synthGuardedHandler(handleTouchStart), { passive: false });
+    synthArea.addEventListener('touchend', synthGuardedHandler(handleTouchEnd), { passive: false });
+    synthArea.addEventListener('touchcancel', synthGuardedHandler(handleTouchCancel), { passive: false });
+    synthArea.addEventListener('touchmove', synthGuardedHandler(handleTouchMove), { passive: false });
+    // Global fallback listeners
+    window.addEventListener('touchend', (e) => {
+      if (isTouchActive) {
+        console.log('[window touchend fallback]');
+        handleTouchEnd(e);
+      }
+    }, { passive: false });
+    window.addEventListener('touchcancel', (e) => {
+      if (isTouchActive) {
+        console.log('[window touchcancel fallback]');
+        handleTouchCancel(e);
+      }
+    }, { passive: false });
 
     // Update custom cursor position
     document.addEventListener('mousemove', (e) => {
