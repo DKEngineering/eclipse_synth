@@ -839,22 +839,35 @@
     function findNearestQuantizedFrequency(frequency) {
       const minFreq = 20;
       const maxFreq = 2000;
-      const baseFreq = 261.63; // Middle C (C4)
+      
+      // Major scale intervals (0, 2, 4, 5, 7, 9, 11 semitones from root)
+      const majorScaleIntervals = [0, 2, 4, 5, 7, 9, 11];
+      
       let nearestFreq = frequency;
       let minDistance = Infinity;
       
-      // C major scale intervals from C (0, 2, 4, 5, 7, 9, 11 semitones)
-      const cMajorIntervals = [0, 2, 4, 5, 7, 9, 11];
+      // Find the best root note and octave for this frequency
+      // Start with A (440Hz) as a reference and work backwards/forwards
+      const a4Freq = 440;
+      const a4Midi = 69; // MIDI note number for A4
       
-      // Check all C major scale notes within the synth's range
-      for (let octave = 0; octave <= 8; octave++) {
-        for (let interval of cMajorIntervals) {
-          const scaleFreq = baseFreq * Math.pow(2, octave + interval / 12);
-          if (scaleFreq >= minFreq && scaleFreq <= maxFreq) {
-            const distance = Math.abs(frequency - scaleFreq);
-            if (distance < minDistance) {
-              minDistance = distance;
-              nearestFreq = scaleFreq;
+      // Calculate MIDI note number for the input frequency
+      const midiNote = 12 * Math.log2(frequency / a4Freq) + a4Midi;
+      
+      // Find the best root note (0-11) for this frequency
+      for (let root = 0; root < 12; root++) {
+        // Check all octaves for this root
+        for (let octave = 0; octave <= 8; octave++) {
+          for (let interval of majorScaleIntervals) {
+            const scaleMidiNote = root + interval + (octave * 12);
+            const scaleFreq = a4Freq * Math.pow(2, (scaleMidiNote - a4Midi) / 12);
+            
+            if (scaleFreq >= minFreq && scaleFreq <= maxFreq) {
+              const distance = Math.abs(frequency - scaleFreq);
+              if (distance < minDistance) {
+                minDistance = distance;
+                nearestFreq = scaleFreq;
+              }
             }
           }
         }
@@ -1161,29 +1174,25 @@
       }
       updateOrb(x, y, show = true) {
         if (!this.orb) return; // Guard against undefined orb
-        this.orb.style.left = `${x - 60}px`;
-        this.orb.style.top = `${y - 60}px`;
+        this.orb.style.left = `${x}px`;
+        this.orb.style.top = `${y}px`;
         this.orb.style.display = show ? 'block' : 'none';
       }
       startPulse() {
         const pulseDuration = 1000; // 1 second per pulse cycle
         const startTime = Date.now();
-        
+        const baseSize = 120;
+        this.orb.style.width = `${baseSize}px`;
+        this.orb.style.height = `${baseSize}px`;
+        this.orb.style.left = `${this.x}px`;
+        this.orb.style.top = `${this.y}px`;
+        this.orb.style.transform = 'translate(-50%, -50%) scale(1)';
         this.pulseInterval = setInterval(() => {
           const elapsed = Date.now() - startTime;
           const pulseProgress = (elapsed % pulseDuration) / pulseDuration;
           const pulseValue = Math.sin(pulseProgress * Math.PI * 2) * 0.3 + 0.7; // 0.4 to 1.0
-          
-          // Pulse size
-          const baseSize = 120;
-          const pulseSize = baseSize * pulseValue;
-          this.orb.style.width = `${pulseSize}px`;
-          this.orb.style.height = `${pulseSize}px`;
-          
-          // Keep orb centered at its final position (60px is half of base size)
-          this.orb.style.left = `${this.x - 60}px`;
-          this.orb.style.top = `${this.y - 60}px`;
-          
+          // Animate scale only, keep center fixed
+          this.orb.style.transform = `translate(-50%, -50%) scale(${pulseValue})`;
           // Pulse glow intensity
           const glowIntensity = pulseValue * 1.5;
           this.orb.style.boxShadow = `0 0 ${40 * glowIntensity}px ${20 * glowIntensity}px ${this.colorSet[1]}, 0 0 ${80 * glowIntensity}px ${40 * glowIntensity}px ${this.colorSet[2]}`;
@@ -1570,7 +1579,10 @@
       customCursor.classList.add('hide-cursor');
     }
     function showCursor() {
-      customCursor.classList.remove('hide-cursor');
+      // Only show cursor if not on touch device
+      if (!('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
+        customCursor.classList.remove('hide-cursor');
+      }
     }
     document.querySelectorAll('.control-btn, #waveform-panel, #infinity-button').forEach(el => {
       el.addEventListener('mouseenter', hideCursor);
