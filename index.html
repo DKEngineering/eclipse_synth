@@ -1448,6 +1448,11 @@
         setTimeout(() => {
           audioUnlockOverlay.style.display = 'none';
         }, 400);
+        // Hide custom cursor on touch devices
+        if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+          const customCursor = document.getElementById('custom-cursor');
+          if (customCursor) customCursor.classList.add('hide-cursor');
+        }
       });
     }
 
